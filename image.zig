@@ -94,6 +94,10 @@ const JPEG_ERRORS = error{
     UNINITIALIZED_TABLE,
 };
 
+const IMAGE_ERRORS = error{
+    NOT_LOADED,
+};
+
 const zig_zag_map: [64]u8 = [_]u8{
     0,  1,  8,  16, 9,  2,  3,  10,
     17, 24, 32, 25, 18, 11, 4,  5,
@@ -137,6 +141,12 @@ const QuantizationTable = struct {
     }
 };
 
+const Pixel = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
 const ColorComponent = struct {
     horizontal_sampling_factor: u8 = 1,
     vertical_sampling_factor: u8 = 1,
@@ -146,8 +156,22 @@ const ColorComponent = struct {
     used: bool = false,
 };
 
+const MCU = struct {
+    y: [64]i32 = [_]i32{0} ** 64,
+    r: []i32 = undefined,
+    cb: [64]i32 = [_]i32{0} ** 64,
+    g: []i32 = undefined,
+    cr: [64]i32 = [_]i32{0} ** 64,
+    b: []i32 = undefined,
+    pub fn init(self: *MCU) void {
+        self.r = &self.y;
+        self.g = &self.cb;
+        self.b = &self.cr;
+    }
+};
+
 const Image = struct {
-    data: ?std.ArrayList(u8) = null,
+    data: ?std.ArrayList(Pixel) = null,
     _quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
     height: u32 = 0,
     width: u32 = 0,
@@ -163,6 +187,7 @@ const Image = struct {
     _succcessive_approximation_high: u8 = 0,
     _succcessive_approximation_low: u8 = 0,
     _huffman_data: ?std.ArrayList(u8) = null,
+    _loaded: bool = false,
     fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
@@ -356,8 +381,6 @@ const Image = struct {
             huff_table.offsets[0] = 0;
             var all_symbols: u8 = 0;
             for (1..17) |i| {
-                std.debug.print("offset i:{d} \n", .{i});
-                std.debug.print("all symbols {x} {d}\n", .{ all_symbols, buffer[index.* + 1] });
                 all_symbols += buffer[index.* + 1];
                 index.* += 1;
                 huff_table.offsets[i] = all_symbols;
@@ -367,7 +390,6 @@ const Image = struct {
             }
             for (0..all_symbols) |j| {
                 huff_table.symbols[j] = buffer[index.* + 1];
-                std.debug.print("symbol {d} \n", .{huff_table.symbols[j]});
                 index.* += 1;
             }
             length -= 17 + all_symbols;
@@ -408,16 +430,11 @@ const Image = struct {
                     self._skippable_header(buffer, &i);
                 } else if (current == @intFromEnum(JPEG_HEADERS.DQT)) {
                     std.debug.print("Reading Quant table\n", .{});
-                    std.debug.print("index {d}\n", .{i});
                     try self._read_quant_table(buffer, &i);
-                    for (self._quantization_tables) |table| {
-                        table.print();
-                    }
                 } else if (current == @intFromEnum(JPEG_HEADERS.DRI)) {
                     try self._read_restart_interval(buffer, &i);
                 } else if (current == @intFromEnum(JPEG_HEADERS.SOS)) {
                     try self._read_start_of_scan(buffer, &i, allocator);
-                    self.print();
                     break;
                 } else if (current == @intFromEnum(JPEG_HEADERS.DHT)) {
                     try self._read_huffman(buffer, &i);
@@ -499,13 +516,16 @@ const Image = struct {
                 return JPEG_ERRORS.UNINITIALIZED_TABLE;
             }
         }
-        std.debug.print("Huffman data length: {d}", .{self._huffman_data.?.items.len});
     }
     pub fn clean_up(self: *Image) void {
-        std.ArrayList(u8).deinit(self.data.?);
+        std.ArrayList(Pixel).deinit(self.data.?);
         std.ArrayList(u8).deinit(self._huffman_data.?);
     }
     pub fn print(self: *Image) void {
+        std.debug.print("Quant Tables:\n", .{});
+        for (self._quantization_tables) |table| {
+            table.print();
+        }
         std.debug.print("DC Tables:\n", .{});
         for (0.., self._huffman_dct_tables) |i, table| {
             std.debug.print("Table ID: {d}\n", .{i});
@@ -522,10 +542,82 @@ const Image = struct {
             }
             std.debug.print("\n", .{});
         }
+        std.debug.print("Huffman data length: {d}\n", .{self._huffman_data.?.items.len});
+    }
+    fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
+        self.data = std.ArrayList(Pixel).init(allocator.*);
+        const mcu_height: u32 = (self.height + 7) / 8;
+        const mcu_width: u32 = (self.width + 7) / 8;
+        const mcus: []MCU = allocator.alloc(MCU, mcu_height * mcu_width);
+        for (mcus) |mcu| {
+            mcu.init();
+        }
+        defer allocator.free(mcus);
+        const padding_size: u32 = self.width % 4;
+        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+
+        for (self.height - 1..0) |i| {
+            const mcu_row: u32 = i / 8;
+            const pixel_row: u32 = i % 8;
+            for (0..self.width) |j| {
+                const mcu_col: u32 = j / 8;
+                const pixel_col: u32 = j % 8;
+                const mcu_index = mcu_row * mcu_width + mcu_col;
+                const pixel_index = pixel_row * 8 + pixel_col;
+                self.data.?.append(Pixel{
+                    .r = mcus[mcu_index].r[pixel_index],
+                    .g = mcus[mcu_index].g[pixel_index],
+                    .b = mcus[mcu_index].b[pixel_index],
+                });
+            }
+        }
+    }
+    fn _little_endian(_: *Image, file: *std.fs.File, num_bytes: comptime_int, i: u32) !void {
+        switch (num_bytes) {
+            2 => {
+                file.writer().writeInt(u16, i, std.builtin.Endian.little);
+            },
+            4 => {
+                file.writer().writeInt(u32, i, std.builtin.Endian.little);
+            },
+            else => unreachable,
+        }
+    }
+    pub fn write_BMP(self: *Image, file_name: []const u8) IMAGE_ERRORS!void {
+        if (!self._loaded) {
+            return IMAGE_ERRORS.NOT_LOADED;
+        }
+        const image_file = try std.fs.cwd().createFile(file_name, .{});
+        defer image_file.close();
+        image_file.writer().writeByte('B');
+        image_file.writer().writeByte('M');
+        const padding_size: u32 = self.width % 4;
+        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+        self._little_endian(&image_file, 4, size);
+        self._little_endian(&image_file, 4, 0);
+        self._little_endian(&image_file, 4, 0x1A);
+        self._little_endian(&image_file, 4, 12);
+        self._little_endian(&image_file, 2, self.width);
+        self._little_endian(&image_file, 2, self.height);
+        self._little_endian(&image_file, 2, 1);
+        self._little_endian(&image_file, 2, 24);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const pixel: *Pixel = &self.data.?.items[i * self.height + j];
+                image_file.writer().writeByte(pixel.b);
+                image_file.writer().writeByte(pixel.g);
+                image_file.writer().writeByte(pixel.r);
+            }
+            for (0..padding_size) |_| {
+                image_file.writer().writeByte(0);
+            }
+        }
     }
     pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         try self._read_JPEG(file_name, allocator);
-        self.data = std.ArrayList(u8).init(allocator.*);
+        self.print();
+        try self._gen_rgb_data(allocator);
+        self._loaded = true;
     }
 };
 
@@ -534,9 +626,16 @@ test "JPEG" {
     var allocator = gpa.allocator();
     var image = Image{};
     try image.load_JPEG("cat.jpg", &allocator);
-    image.print();
+    //try image.write_BMP("cat.bmp");
     image.clean_up();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
+}
+
+test "MCU" {
+    var mcu = MCU{};
+    mcu.init();
+    mcu.r[1] = 5;
+    try std.testing.expect(mcu.r[1] == 5 and mcu.y[1] == 5);
 }
