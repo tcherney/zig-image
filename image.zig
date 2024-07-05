@@ -25,6 +25,8 @@ const JPEG_HEADERS = enum(u8) {
     APP13 = 0xED,
     APP14 = 0xEE,
     APP15 = 0xEF,
+    DRI = 0xDD,
+    DHT = 0xC4,
 };
 
 const JPEG_ERRORS = error{
@@ -34,6 +36,10 @@ const JPEG_ERRORS = error{
     CMYK_NOT_SUPPORTED,
     YIQ_NOT_SUPPORTED,
     INVALID_COMPONENT_ID,
+    INVALID_RESTART_MARKER,
+    INVALID_HUFFMAN_ID,
+    TOO_MANY_HUFFMAN_SYMBOLS,
+    INVALID_HUFFMAN_LENGTH,
 };
 
 const zig_zag_map: [64]u8 = [_]u8{
@@ -45,6 +51,24 @@ const zig_zag_map: [64]u8 = [_]u8{
     29, 22, 15, 23, 30, 37, 44, 51,
     58, 59, 52, 45, 38, 31, 39, 46,
     53, 60, 61, 54, 47, 55, 62, 63,
+};
+
+const HuffmanTable = struct {
+    symbols: [162]u8 = [_]u8{0} ** 162,
+    offsets: [17]u8 = [_]u8{0} ** 17,
+    set: bool = false,
+    pub fn print(self: *const HuffmanTable) void {
+        if (self.set) {
+            std.debug.print("Symbols: \n", .{});
+            for (0..16) |i| {
+                std.debug.print("{d}: ", .{i + 1});
+                for (self.offsets[i]..self.offsets[i + 1]) |j| {
+                    std.debug.print("{d} ", .{self.symbols[j]});
+                }
+                std.debug.print("\n", .{});
+            }
+        }
+    }
 };
 
 const QuantizationTable = struct {
@@ -75,7 +99,11 @@ const Image = struct {
     width: u32 = 0,
     _frame_type: JPEG_HEADERS = JPEG_HEADERS.SOF0,
     _num_components: u8 = 0,
+    _restart_interval: u16 = 0,
+    _zero_based: bool = false,
     _color_components: [3]ColorComponent = [_]ColorComponent{.{}} ** 3,
+    huffman_dct_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
+    huffman_act_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
     pub fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
@@ -108,8 +136,14 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_HEADER;
         }
         for (0..self._num_components) |_| {
-            const component_id = buffer[index.* + 1];
+            var component_id = buffer[index.* + 1];
             index.* += 1;
+            if (component_id == 0) {
+                self._zero_based = true;
+            }
+            if (self._zero_based) {
+                component_id += 1;
+            }
             if (component_id == 4 or component_id == 5) {
                 return JPEG_ERRORS.YIQ_NOT_SUPPORTED;
             }
@@ -172,6 +206,61 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_DQT;
         }
     }
+    pub fn _read_restart_interval(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+        std.debug.print("Reading DRI marker\n", .{});
+        const length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+        index.* += 2;
+        self._restart_interval = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+        index.* += 2;
+        if (length - 4 != 0) {
+            return JPEG_ERRORS.INVALID_RESTART_MARKER;
+        }
+        std.debug.print("Restart interval {d}", .{self._restart_interval});
+    }
+    pub fn _read_huffman(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+        std.debug.print("Reading DHT marker\n", .{});
+        var length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+        index.* += 2;
+        length -= 2;
+        while (length > 0) {
+            const table_info: u8 = buffer[index.* + 1];
+            index.* += 1;
+            const table_id = table_info & 0x0F;
+            const act_table: bool = (table_info >> 4) != 0;
+
+            var huff_table: *HuffmanTable = undefined;
+            if (table_id > 3) {
+                return JPEG_ERRORS.INVALID_HUFFMAN_ID;
+            }
+            if (act_table) {
+                huff_table = &self.huffman_act_tables[table_id];
+            } else {
+                huff_table = &self.huffman_dct_tables[table_id];
+            }
+            huff_table.set = true;
+            huff_table.offsets[0] = 0;
+            var all_symbols: u8 = 0;
+            for (1..17) |i| {
+                std.debug.print("offset i:{d} \n", .{i});
+                std.debug.print("all symbols {x} {d}\n", .{ all_symbols, buffer[index.* + 1] });
+                all_symbols += buffer[index.* + 1];
+                index.* += 1;
+                huff_table.offsets[i] = all_symbols;
+            }
+            if (all_symbols > 162) {
+                return JPEG_ERRORS.TOO_MANY_HUFFMAN_SYMBOLS;
+            }
+            for (0..all_symbols) |j| {
+                huff_table.symbols[j] = buffer[index.* + 1];
+                std.debug.print("symbol {d} \n", .{huff_table.symbols[j]});
+                index.* += 1;
+            }
+            length -= 17 + all_symbols;
+        }
+        if (length != 0) {
+            return JPEG_ERRORS.INVALID_HUFFMAN_LENGTH;
+        }
+    }
     pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(u8).init(allocator.*);
         const image_file = try std.fs.cwd().openFile(file_name, .{});
@@ -213,6 +302,17 @@ const Image = struct {
                     last = buffer[i + 1];
                     current = buffer[i + 2];
                     i += 2;
+                } else if (current == @intFromEnum(JPEG_HEADERS.DRI)) {
+                    try self._read_restart_interval(buffer, &i);
+                    last = buffer[i + 1];
+                    current = buffer[i + 2];
+                    i += 2;
+                } else if (current == @intFromEnum(JPEG_HEADERS.DHT)) {
+                    try self._read_huffman(buffer, &i);
+                    last = buffer[i + 1];
+                    current = buffer[i + 2];
+                    i += 2;
+                    self.print();
                 } else if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
                     std.debug.print("End of image\n", .{});
                     break;
@@ -240,6 +340,16 @@ const Image = struct {
         std.ArrayList(u8).deinit(self.data.?);
     }
     pub fn print(self: *Image) void {
+        std.debug.print("DC Tables:\n", .{});
+        for (0.., self.huffman_dct_tables) |i, table| {
+            std.debug.print("Table ID: {d}\n", .{i});
+            table.print();
+        }
+        std.debug.print("AC Tables:\n", .{});
+        for (0.., self.huffman_act_tables) |i, table| {
+            std.debug.print("Table ID: {d}\n", .{i});
+            table.print();
+        }
         if (self.data) |data| {
             for (data.items) |item| {
                 std.debug.print("{x} ", .{item});
