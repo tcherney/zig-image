@@ -9,6 +9,18 @@ const JPEG_HEADERS = enum(u8) {
     EOI = 0xD9,
     DQT = 0xDB,
     SOF0 = 0xC0,
+    SOF1 = 0xC1,
+    SOF2 = 0xC2,
+    SOF3 = 0xC3,
+    SOF5 = 0xC5,
+    SOF6 = 0xC6,
+    SOF7 = 0xC7,
+    SOF9 = 0xC9,
+    SOF10 = 0xCA,
+    SOF11 = 0xCB,
+    SOF13 = 0xCD,
+    SOF14 = 0xCE,
+    SOF15 = 0xCF,
     APP0 = 0xE0,
     APP1 = 0xE1,
     APP2 = 0xE2,
@@ -27,6 +39,36 @@ const JPEG_HEADERS = enum(u8) {
     APP15 = 0xEF,
     DRI = 0xDD,
     DHT = 0xC4,
+    SOS = 0xDA,
+    RST0 = 0xD0,
+    RST1 = 0xD1,
+    RST2 = 0xD2,
+    RST3 = 0xD3,
+    RST4 = 0xD4,
+    RST5 = 0xD5,
+    RST6 = 0xD6,
+    RST7 = 0xD7,
+    COM = 0xFE,
+    JPG = 0xC8,
+    JPG0 = 0xF0,
+    JPG1 = 0xF1,
+    JPG2 = 0xF2,
+    JPG3 = 0xF3,
+    JPG4 = 0xF4,
+    JPG5 = 0xF5,
+    JPG6 = 0xF6,
+    JPG7 = 0xF7,
+    JPG8 = 0xF8,
+    JPG9 = 0xF9,
+    JPG10 = 0xFA,
+    JPG11 = 0xFB,
+    JPG12 = 0xFC,
+    JPG13 = 0xFD,
+    DNL = 0xDC,
+    DHP = 0xDE,
+    EXP = 0xDF,
+    TEM = 0x01,
+    DAC = 0xCC,
 };
 
 const JPEG_ERRORS = error{
@@ -40,6 +82,16 @@ const JPEG_ERRORS = error{
     INVALID_HUFFMAN_ID,
     TOO_MANY_HUFFMAN_SYMBOLS,
     INVALID_HUFFMAN_LENGTH,
+    DUPLICATE_COLOR_COMPONENT_ID,
+    INVALID_SOS,
+    INVALID_SUCCESSIVE_APPROXIMATION,
+    INVALID_SPECTRAL_SELECTION,
+    INVALID_EOI,
+    INVALID_ARITHMETIC_CODING,
+    INVALID_SOF_MARKER,
+    INVALID_MARKER,
+    INVALID_COMPONENT_LENGTH,
+    UNINITIALIZED_TABLE,
 };
 
 const zig_zag_map: [64]u8 = [_]u8{
@@ -89,6 +141,8 @@ const ColorComponent = struct {
     horizontal_sampling_factor: u8 = 1,
     vertical_sampling_factor: u8 = 1,
     quantization_table_id: u8 = 0,
+    huffman_dct_table_id: u8 = 0,
+    huffman_act_table_id: u8 = 0,
     used: bool = false,
 };
 
@@ -102,9 +156,14 @@ const Image = struct {
     _restart_interval: u16 = 0,
     _zero_based: bool = false,
     _color_components: [3]ColorComponent = [_]ColorComponent{.{}} ** 3,
-    huffman_dct_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
-    huffman_act_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
-    pub fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    _huffman_dct_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
+    _huffman_act_tables: [4]HuffmanTable = [_]HuffmanTable{.{}} ** 4,
+    _start_of_selection: u8 = 0,
+    _end_of_selection: u8 = 63,
+    _succcessive_approximation_high: u8 = 0,
+    _succcessive_approximation_low: u8 = 0,
+    _huffman_data: ?std.ArrayList(u8) = null,
+    fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
             return JPEG_ERRORS.INVALID_HEADER;
@@ -171,7 +230,7 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_HEADER;
         }
     }
-    pub fn _read_quant_table(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_quant_table(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         var length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
         length -= 2;
         index.* += 2;
@@ -206,7 +265,7 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_DQT;
         }
     }
-    pub fn _read_restart_interval(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_restart_interval(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading DRI marker\n", .{});
         const length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
         index.* += 2;
@@ -217,7 +276,63 @@ const Image = struct {
         }
         std.debug.print("Restart interval {d}", .{self._restart_interval});
     }
-    pub fn _read_huffman(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_start_of_scan(self: *Image, buffer: []u8, index: *u32, allocator: *std.mem.Allocator) JPEG_ERRORS!void {
+        std.debug.print("Reading SOS marker\n", .{});
+        self._huffman_data = std.ArrayList(u8).init(allocator.*);
+        if (self._num_components == 0) {
+            return JPEG_ERRORS.INVALID_HEADER;
+        }
+        const length: u16 = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+        index.* += 2;
+        for (0..self._num_components) |i| {
+            self._color_components[i].used = false;
+        }
+        const num_components = buffer[index.* + 1];
+        index.* += 1;
+        for (0..num_components) |_| {
+            var component_id = buffer[index.* + 1];
+            index.* += 1;
+            if (self._zero_based) {
+                component_id += 1;
+            }
+            if (component_id > self._num_components) {
+                return JPEG_ERRORS.INVALID_COMPONENT_ID;
+            }
+            var color_component: *ColorComponent = &self._color_components[component_id - 1];
+            if (color_component.used) {
+                return JPEG_ERRORS.DUPLICATE_COLOR_COMPONENT_ID;
+            }
+            color_component.used = true;
+            const huffman_table_ids = buffer[index.* + 1];
+            index.* += 1;
+            color_component.huffman_dct_table_id = huffman_table_ids >> 4;
+            color_component.huffman_act_table_id = huffman_table_ids & 0x0F;
+            if (color_component.huffman_act_table_id == 3 or color_component.huffman_dct_table_id == 3) {
+                return JPEG_ERRORS.INVALID_HUFFMAN_ID;
+            }
+        }
+        self._start_of_selection = buffer[index.* + 1];
+        index.* += 1;
+        self._end_of_selection = buffer[index.* + 1];
+        index.* += 1;
+        const succ_approx = buffer[index.* + 1];
+        index.* += 1;
+        self._succcessive_approximation_high = succ_approx >> 4;
+        self._succcessive_approximation_low = succ_approx & 0x0F;
+
+        if (self._start_of_selection != 0 or self._end_of_selection != 63) {
+            return JPEG_ERRORS.INVALID_SPECTRAL_SELECTION;
+        }
+
+        if (self._succcessive_approximation_high != 0 or self._succcessive_approximation_low != 0) {
+            return JPEG_ERRORS.INVALID_SUCCESSIVE_APPROXIMATION;
+        }
+
+        if (length - 6 - (2 * num_components) != 0) {
+            return JPEG_ERRORS.INVALID_SOS;
+        }
+    }
+    fn _read_huffman(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading DHT marker\n", .{});
         var length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
         index.* += 2;
@@ -233,9 +348,9 @@ const Image = struct {
                 return JPEG_ERRORS.INVALID_HUFFMAN_ID;
             }
             if (act_table) {
-                huff_table = &self.huffman_act_tables[table_id];
+                huff_table = &self._huffman_act_tables[table_id];
             } else {
-                huff_table = &self.huffman_dct_tables[table_id];
+                huff_table = &self._huffman_dct_tables[table_id];
             }
             huff_table.set = true;
             huff_table.offsets[0] = 0;
@@ -261,8 +376,10 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_HUFFMAN_LENGTH;
         }
     }
-    pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        self.data = std.ArrayList(u8).init(allocator.*);
+    fn _skippable_header(_: *Image, buffer: []u8, index: *u32) void {
+        index.* += (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+    }
+    fn _read_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         const image_file = try std.fs.cwd().openFile(file_name, .{});
         defer image_file.close();
         const size_limit = std.math.maxInt(u32);
@@ -285,13 +402,10 @@ const Image = struct {
             if (last == @intFromEnum(JPEG_HEADERS.HEADER)) {
                 if (current <= @intFromEnum(JPEG_HEADERS.APP15) and current >= @intFromEnum(JPEG_HEADERS.APP0)) {
                     std.debug.print("Application header {x} {x}\n", .{ last, current });
-                    last = buffer[i + 1];
-                    current = buffer[i + 2];
-                    i += (@as(u16, last) << 8) + current + 1;
-                    std.debug.print("Amount to skip {x} {x} {x}\n", .{ last, current, i });
-                    last = buffer[i];
-                    i += 1;
-                    current = buffer[i];
+                    self._skippable_header(buffer, &i);
+                } else if (current == @intFromEnum(JPEG_HEADERS.COM)) {
+                    // comment
+                    self._skippable_header(buffer, &i);
                 } else if (current == @intFromEnum(JPEG_HEADERS.DQT)) {
                     std.debug.print("Reading Quant table\n", .{});
                     std.debug.print("index {d}\n", .{i});
@@ -299,54 +413,106 @@ const Image = struct {
                     for (self._quantization_tables) |table| {
                         table.print();
                     }
-                    last = buffer[i + 1];
-                    current = buffer[i + 2];
-                    i += 2;
                 } else if (current == @intFromEnum(JPEG_HEADERS.DRI)) {
                     try self._read_restart_interval(buffer, &i);
-                    last = buffer[i + 1];
-                    current = buffer[i + 2];
-                    i += 2;
+                } else if (current == @intFromEnum(JPEG_HEADERS.SOS)) {
+                    try self._read_start_of_scan(buffer, &i, allocator);
+                    self.print();
+                    break;
                 } else if (current == @intFromEnum(JPEG_HEADERS.DHT)) {
                     try self._read_huffman(buffer, &i);
-                    last = buffer[i + 1];
-                    current = buffer[i + 2];
-                    i += 2;
-                    self.print();
                 } else if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
                     std.debug.print("End of image\n", .{});
-                    break;
+                    return JPEG_ERRORS.INVALID_EOI;
                 } else if (current == @intFromEnum(JPEG_HEADERS.SOF0)) {
                     self._frame_type = JPEG_HEADERS.SOF0;
                     try self._read_start_of_frame(buffer, &i);
-                    last = buffer[i + 1];
-                    current = buffer[i + 2];
-                    i += 2;
-                } else if (current == @intFromEnum(JPEG_HEADERS.HEADER)) {
+                } else if ((current >= @intFromEnum(JPEG_HEADERS.JPG0) and current <= @intFromEnum(JPEG_HEADERS.JPG13)) or
+                    current == @intFromEnum(JPEG_HEADERS.DNL) or
+                    current == @intFromEnum(JPEG_HEADERS.DHP) or
+                    current == @intFromEnum(JPEG_HEADERS.EXP))
+                {
+                    // unusued that can be skipped
+                    self._skippable_header(buffer, &i);
+                } else if (current == @intFromEnum(JPEG_HEADERS.DAC)) {
+                    return JPEG_ERRORS.INVALID_ARITHMETIC_CODING;
+                } else if (current >= @intFromEnum(JPEG_HEADERS.SOF1) and current <= @intFromEnum(JPEG_HEADERS.SOF15)) {
+                    return JPEG_ERRORS.INVALID_SOF_MARKER;
+                } else if (current >= @intFromEnum(JPEG_HEADERS.RST0) and current <= @intFromEnum(JPEG_HEADERS.RST7)) {
+                    return JPEG_ERRORS.INVALID_HEADER;
+                } else if (current == @intFromEnum(JPEG_HEADERS.TEM)) {} else if (current == @intFromEnum(JPEG_HEADERS.HEADER)) {
                     // allowed to have run of 0xFF
                     last = current;
                     i += 1;
                     current = buffer[i];
+                    continue;
                 } else {
                     return JPEG_ERRORS.INVALID_HEADER;
                 }
+                // handled valid header move to next
+                last = buffer[i + 1];
+                current = buffer[i + 2];
+                i += 2;
             } else {
                 //expected header
                 return JPEG_ERRORS.INVALID_HEADER;
             }
         }
+        current = buffer[i + 1];
+        i += 1;
+        while (i < buffer.len) {
+            last = current;
+            current = buffer[i + 1];
+            i += 1;
+            if (last == @intFromEnum(JPEG_HEADERS.HEADER)) {
+                // might be a marker
+                if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
+                    break;
+                } else if (current == 0) {
+                    try self._huffman_data.?.append(last);
+                    current = buffer[i + 1];
+                    i += 1;
+                } else if (current >= @intFromEnum(JPEG_HEADERS.RST0) and current <= @intFromEnum(JPEG_HEADERS.RST7)) {
+                    current = buffer[i + 1];
+                    i += 1;
+                } else if (current == @intFromEnum(JPEG_HEADERS.HEADER)) {
+                    continue;
+                } else {
+                    return JPEG_ERRORS.INVALID_MARKER;
+                }
+            } else {
+                try self._huffman_data.?.append(last);
+            }
+        }
+        if (self._num_components != 1 and self._num_components != 3) {
+            return JPEG_ERRORS.INVALID_COMPONENT_LENGTH;
+        }
+
+        for (0..self._num_components) |j| {
+            if (self._quantization_tables[self._color_components[j].quantization_table_id].set == false) {
+                return JPEG_ERRORS.UNINITIALIZED_TABLE;
+            }
+            if (self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id].set == false) {
+                return JPEG_ERRORS.UNINITIALIZED_TABLE;
+            }
+            if (self._huffman_act_tables[self._color_components[j].huffman_act_table_id].set == false) {
+                return JPEG_ERRORS.UNINITIALIZED_TABLE;
+            }
+        }
+        std.debug.print("Huffman data length: {d}", .{self._huffman_data.?.items.len});
     }
     pub fn clean_up(self: *Image) void {
         std.ArrayList(u8).deinit(self.data.?);
+        std.ArrayList(u8).deinit(self._huffman_data.?);
     }
     pub fn print(self: *Image) void {
         std.debug.print("DC Tables:\n", .{});
-        for (0.., self.huffman_dct_tables) |i, table| {
+        for (0.., self._huffman_dct_tables) |i, table| {
             std.debug.print("Table ID: {d}\n", .{i});
             table.print();
         }
         std.debug.print("AC Tables:\n", .{});
-        for (0.., self.huffman_act_tables) |i, table| {
+        for (0.., self._huffman_act_tables) |i, table| {
             std.debug.print("Table ID: {d}\n", .{i});
             table.print();
         }
@@ -356,6 +522,10 @@ const Image = struct {
             }
             std.debug.print("\n", .{});
         }
+    }
+    pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
+        try self._read_JPEG(file_name, allocator);
+        self.data = std.ArrayList(u8).init(allocator.*);
     }
 };
 
