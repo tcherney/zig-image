@@ -942,6 +942,18 @@ const Image = struct {
             else => unreachable,
         }
     }
+    pub fn convert_grayscale(self: *Image) !void {
+        if (self._loaded) {
+            for (0..self.data.?.items.len) |i| {
+                const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.?.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.?.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.?.items[i].b)) * 0.1140));
+                self.data.?.items[i].r = gray;
+                self.data.?.items[i].g = gray;
+                self.data.?.items[i].b = gray;
+            }
+        } else {
+            return IMAGE_ERRORS.NOT_LOADED;
+        }
+    }
     pub fn write_BMP(self: *Image, file_name: []const u8) !void {
         if (!self._loaded) {
             return IMAGE_ERRORS.NOT_LOADED;
@@ -985,6 +997,7 @@ test "CAT" {
     var allocator = gpa.allocator();
     var image = Image{};
     try image.load_JPEG("cat.jpg", &allocator);
+    try image.convert_grayscale();
     try image.write_BMP("cat.bmp");
     image.clean_up();
     if (gpa.deinit() == .leak) {
