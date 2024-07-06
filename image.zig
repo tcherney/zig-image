@@ -712,12 +712,48 @@ const Image = struct {
             }
         }
     }
+    fn _inverse_dct_component(_: *Image, mcu: *[64]i32) void {
+        var result: [64]i32 = [_]i32{0} ** 64;
+        for (0..8) |y| {
+            for (0..8) |x| {
+                var sum: f64 = 0;
+                for (0..8) |i| {
+                    for (0..8) |j| {
+                        var ci: f64 = 0;
+                        var cj: f64 = 0;
+                        if (i == 0) {
+                            ci = std.math.sqrt1_2;
+                        }
+                        if (j == 0) {
+                            cj = std.math.sqrt1_2;
+                        }
+                        sum += ci * cj * @as(f64, @floatFromInt(mcu[i * 8 + j])) * std.math.cos((2.0 * @as(f64, @floatFromInt(x)) + 1.0) * @as(f64, @floatFromInt(j)) * std.math.pi / 16.0) *
+                            std.math.cos((2.0 * @as(f64, @floatFromInt(y)) + 1.0) * @as(f64, @floatFromInt(i)) * std.math.pi / 16.0);
+                    }
+                }
+                sum /= 4.0;
+                result[y * 8 + x] = @intFromFloat(sum);
+            }
+        }
+
+        for (0..64) |y| {
+            mcu[y] = result[y];
+        }
+    }
+    fn _inverse_dct(self: *Image, mcus: []MCU) void {
+        for (0..mcus.len) |i| {
+            for (0..self._num_components) |j| {
+                self._inverse_dct_component(mcus[i].get(j));
+            }
+        }
+    }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(Pixel).init(allocator.*);
         const mcus: []MCU = try self._decode_huffman_data(allocator);
         defer allocator.free(mcus);
 
         try self._de_quant_data(mcus);
+        self._inverse_dct(mcus);
         const mcu_width: u32 = (self.width + 7) / 8;
         //const padding_size: u32 = self.width % 4;
         //const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
