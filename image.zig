@@ -873,16 +873,44 @@ const Image = struct {
             }
         }
     }
+    fn _ycb_rgb(_: *Image, mcus: []MCU) void {
+        for (0..mcus.len) |i| {
+            for (0..64) |j| {
+                var r: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) + 1.402 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
+                var g: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) - 0.344 * @as(f32, @floatFromInt(mcus[i].cb[j])) - 0.714 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
+                var b: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) + 1.722 * @as(f32, @floatFromInt(mcus[i].cb[j])) + 128.0;
+                if (r < 0) {
+                    r = 0;
+                }
+                if (r > 255) {
+                    r = 255;
+                }
+                if (g < 0) {
+                    g = 0;
+                }
+                if (g > 255) {
+                    g = 255;
+                }
+                if (b < 0) {
+                    b = 0;
+                }
+                if (b > 255) {
+                    b = 255;
+                }
+                mcus[i].r[j] = @as(i32, @intFromFloat(r));
+                mcus[i].g[j] = @as(i32, @intFromFloat(g));
+                mcus[i].b[j] = @as(i32, @intFromFloat(b));
+            }
+        }
+    }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(Pixel).init(allocator.*);
         const mcus: []MCU = try self._decode_huffman_data(allocator);
         defer allocator.free(mcus);
-
         try self._de_quant_data(mcus);
         self._inverse_dct(mcus);
+        self._ycb_rgb(mcus);
         const mcu_width: u32 = (self.width + 7) / 8;
-        //const padding_size: u32 = self.width % 4;
-        //const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
 
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = self.height;
