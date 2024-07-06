@@ -71,6 +71,22 @@ const JPEG_HEADERS = enum(u8) {
     DAC = 0xCC,
 };
 
+const IDCT_SCALING_FACTORS = struct {
+    const m0: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi);
+    const m1: f32 = 2.0 * std.math.cos(2 / 16 * 2 * std.math.pi);
+    const m5: f32 = 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
+    const m2: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi) - 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
+    const m4: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi) + 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
+    const s0: f32 = std.math.cos(0.0 / 16.0 * std.math.pi) / std.math.sqrt(8.0);
+    const s1: f32 = std.math.cos(1.0 / 16.0 * std.math.pi) / 2.0;
+    const s2: f32 = std.math.cos(2.0 / 16.0 * std.math.pi) / 2.0;
+    const s3: f32 = std.math.cos(3.0 / 16.0 * std.math.pi) / 2.0;
+    const s4: f32 = std.math.cos(4.0 / 16.0 * std.math.pi) / 2.0;
+    const s5: f32 = std.math.cos(5.0 / 16.0 * std.math.pi) / 2.0;
+    const s6: f32 = std.math.cos(6.0 / 16.0 * std.math.pi) / 2.0;
+    const s7: f32 = std.math.cos(7.0 / 16.0 * std.math.pi) / 2.0;
+};
+
 const JPEG_ERRORS = error{
     INVALID_HEADER,
     INVALID_DQT_ID,
@@ -712,32 +728,142 @@ const Image = struct {
             }
         }
     }
+    // inverse dct based on AAN
     fn _inverse_dct_component(_: *Image, mcu: *[64]i32) void {
-        var result: [64]i32 = [_]i32{0} ** 64;
-        for (0..8) |y| {
-            for (0..8) |x| {
-                var sum: f64 = 0;
-                for (0..8) |i| {
-                    for (0..8) |j| {
-                        var ci: f64 = 0;
-                        var cj: f64 = 0;
-                        if (i == 0) {
-                            ci = std.math.sqrt1_2;
-                        }
-                        if (j == 0) {
-                            cj = std.math.sqrt1_2;
-                        }
-                        sum += ci * cj * @as(f64, @floatFromInt(mcu[i * 8 + j])) * std.math.cos((2.0 * @as(f64, @floatFromInt(x)) + 1.0) * @as(f64, @floatFromInt(j)) * std.math.pi / 16.0) *
-                            std.math.cos((2.0 * @as(f64, @floatFromInt(y)) + 1.0) * @as(f64, @floatFromInt(i)) * std.math.pi / 16.0);
-                    }
-                }
-                sum /= 4.0;
-                result[y * 8 + x] = @intFromFloat(sum);
-            }
+        for (0..8) |i| {
+            const g0: f32 = @as(f32, @floatFromInt(mcu[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
+            const g1: f32 = @as(f32, @floatFromInt(mcu[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
+            const g2: f32 = @as(f32, @floatFromInt(mcu[2 * 8 + i])) * IDCT_SCALING_FACTORS.s2;
+            const g3: f32 = @as(f32, @floatFromInt(mcu[6 * 8 + i])) * IDCT_SCALING_FACTORS.s6;
+            const g4: f32 = @as(f32, @floatFromInt(mcu[5 * 8 + i])) * IDCT_SCALING_FACTORS.s5;
+            const g5: f32 = @as(f32, @floatFromInt(mcu[1 * 8 + i])) * IDCT_SCALING_FACTORS.s1;
+            const g6: f32 = @as(f32, @floatFromInt(mcu[7 * 8 + i])) * IDCT_SCALING_FACTORS.s7;
+            const g7: f32 = @as(f32, @floatFromInt(mcu[3 * 8 + i])) * IDCT_SCALING_FACTORS.s3;
+
+            const f0: f32 = g0;
+            const f1: f32 = g1;
+            const f2: f32 = g2;
+            const f3: f32 = g3;
+            const f4: f32 = g4 - g7;
+            const f5: f32 = g5 + g6;
+            const f6: f32 = g5 - g6;
+            const f7: f32 = g4 + g7;
+
+            const e0: f32 = f0;
+            const e1: f32 = f1;
+            const e2: f32 = f2 - f3;
+            const e3: f32 = f2 + f3;
+            const e4: f32 = f4;
+            const e5: f32 = f5 - f7;
+            const e6: f32 = f6;
+            const e7: f32 = f5 + f7;
+            const e8: f32 = f4 + f6;
+
+            const d0: f32 = e0;
+            const d1: f32 = e1;
+            const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
+            const d3: f32 = e3;
+            const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
+            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m1;
+            const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
+            const d7: f32 = e7;
+            const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
+
+            const c0: f32 = d0 + d1;
+            const c1: f32 = d0 - d1;
+            const c2: f32 = d2 - d3;
+            const c3: f32 = d3;
+            const c4: f32 = d4 + d8;
+            const c5: f32 = d5 + d7;
+            const c6: f32 = d6 - d8;
+            const c7: f32 = d7;
+            const c8: f32 = c5 - c6;
+
+            const b0: f32 = c0 + c3;
+            const b1: f32 = c1 + c2;
+            const b2: f32 = c1 - c2;
+            const b3: f32 = c0 - c3;
+            const b4: f32 = c4 - c8;
+            const b5: f32 = c8;
+            const b6: f32 = c6 - c7;
+            const b7: f32 = c7;
+
+            mcu[0 * 8 + i] = @as(i32, @intFromFloat(b0 + b7));
+            mcu[1 * 8 + i] = @as(i32, @intFromFloat(b1 + b6));
+            mcu[2 * 8 + i] = @as(i32, @intFromFloat(b2 + b5));
+            mcu[3 * 8 + i] = @as(i32, @intFromFloat(b3 + b4));
+            mcu[4 * 8 + i] = @as(i32, @intFromFloat(b3 - b4));
+            mcu[5 * 8 + i] = @as(i32, @intFromFloat(b2 - b5));
+            mcu[6 * 8 + i] = @as(i32, @intFromFloat(b1 - b6));
+            mcu[7 * 8 + i] = @as(i32, @intFromFloat(b0 - b7));
         }
 
-        for (0..64) |y| {
-            mcu[y] = result[y];
+        for (0..8) |i| {
+            const g0: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 0])) * IDCT_SCALING_FACTORS.s0;
+            const g1: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 4])) * IDCT_SCALING_FACTORS.s4;
+            const g2: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 2])) * IDCT_SCALING_FACTORS.s2;
+            const g3: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 6])) * IDCT_SCALING_FACTORS.s6;
+            const g4: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 5])) * IDCT_SCALING_FACTORS.s5;
+            const g5: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 1])) * IDCT_SCALING_FACTORS.s1;
+            const g6: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 7])) * IDCT_SCALING_FACTORS.s7;
+            const g7: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 3])) * IDCT_SCALING_FACTORS.s3;
+
+            const f0: f32 = g0;
+            const f1: f32 = g1;
+            const f2: f32 = g2;
+            const f3: f32 = g3;
+            const f4: f32 = g4 - g7;
+            const f5: f32 = g5 + g6;
+            const f6: f32 = g5 - g6;
+            const f7: f32 = g4 + g7;
+
+            const e0: f32 = f0;
+            const e1: f32 = f1;
+            const e2: f32 = f2 - f3;
+            const e3: f32 = f2 + f3;
+            const e4: f32 = f4;
+            const e5: f32 = f5 - f7;
+            const e6: f32 = f6;
+            const e7: f32 = f5 + f7;
+            const e8: f32 = f4 + f6;
+
+            const d0: f32 = e0;
+            const d1: f32 = e1;
+            const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
+            const d3: f32 = e3;
+            const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
+            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m1;
+            const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
+            const d7: f32 = e7;
+            const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
+
+            const c0: f32 = d0 + d1;
+            const c1: f32 = d0 - d1;
+            const c2: f32 = d2 - d3;
+            const c3: f32 = d3;
+            const c4: f32 = d4 + d8;
+            const c5: f32 = d5 + d7;
+            const c6: f32 = d6 - d8;
+            const c7: f32 = d7;
+            const c8: f32 = c5 - c6;
+
+            const b0: f32 = c0 + c3;
+            const b1: f32 = c1 + c2;
+            const b2: f32 = c1 - c2;
+            const b3: f32 = c0 - c3;
+            const b4: f32 = c4 - c8;
+            const b5: f32 = c8;
+            const b6: f32 = c6 - c7;
+            const b7: f32 = c7;
+
+            mcu[i * 8 + 0] = @as(i32, @intFromFloat(b0 + b7 + 0.5));
+            mcu[i * 8 + 1] = @as(i32, @intFromFloat(b1 + b6 + 0.5));
+            mcu[i * 8 + 2] = @as(i32, @intFromFloat(b2 + b5 + 0.5));
+            mcu[i * 8 + 3] = @as(i32, @intFromFloat(b3 + b4 + 0.5));
+            mcu[i * 8 + 4] = @as(i32, @intFromFloat(b3 - b4 + 0.5));
+            mcu[i * 8 + 5] = @as(i32, @intFromFloat(b2 - b5 + 0.5));
+            mcu[i * 8 + 6] = @as(i32, @intFromFloat(b1 - b6 + 0.5));
+            mcu[i * 8 + 7] = @as(i32, @intFromFloat(b0 - b7 + 0.5));
         }
     }
     fn _inverse_dct(self: *Image, mcus: []MCU) void {
