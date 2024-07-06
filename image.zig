@@ -82,6 +82,7 @@ const JPEG_ERRORS = error{
     INVALID_HUFFMAN_ID,
     TOO_MANY_HUFFMAN_SYMBOLS,
     INVALID_HUFFMAN_LENGTH,
+    HUFFMAN_DECODING,
     DUPLICATE_COLOR_COMPONENT_ID,
     INVALID_SOS,
     INVALID_SUCCESSIVE_APPROXIMATION,
@@ -113,6 +114,7 @@ const HuffmanTable = struct {
     symbols: [162]u8 = [_]u8{0} ** 162,
     offsets: [17]u8 = [_]u8{0} ** 17,
     set: bool = false,
+    codes: [162]u32 = [_]u32{0} ** 162,
     pub fn print(self: *const HuffmanTable) void {
         if (self.set) {
             std.debug.print("Symbols: \n", .{});
@@ -167,6 +169,53 @@ const MCU = struct {
         self.r = &self.y;
         self.g = &self.cb;
         self.b = &self.cr;
+    }
+    pub fn get(self: *MCU, index: u32) *[64]i32 {
+        switch (index) {
+            0 => return &self.y,
+            1 => return &self.cb,
+            2 => return &self.cr,
+            else => unreachable,
+        }
+    }
+};
+
+const BITREADER_ERRORS = error{
+    INVALID_READ,
+};
+
+const BitReader = struct {
+    next_byte: u32 = 0,
+    next_bit: u32 = 0,
+    data: *std.ArrayList(u8),
+    pub fn read_bit(self: *BitReader) BITREADER_ERRORS!u32 {
+        if (self.next_byte >= self.data.items.len) {
+            return BITREADER_ERRORS.INVALID_READ;
+        }
+        const bit: u32 = (self.data.items[self.next_byte] >> @as(u3, @intCast(7 - self.next_bit))) & 1;
+        self.next_bit += 1;
+        if (self.next_bit == 8) {
+            self.next_bit = 0;
+            self.next_byte += 1;
+        }
+        return bit;
+    }
+    pub fn read_bits(self: *BitReader, length: u32) BITREADER_ERRORS!u32 {
+        var bits: u32 = 0;
+        for (0..length) |_| {
+            const bit = try self.read_bit();
+            bits = (bits << 1) | bit;
+        }
+        return bits;
+    }
+    pub fn align_reader(self: *BitReader) void {
+        if (self.next_byte >= self.data.items.len) {
+            return;
+        }
+        if (self.next_bit != 0) {
+            self.next_bit = 0;
+            self.next_byte += 1;
+        }
     }
 };
 
@@ -536,80 +585,189 @@ const Image = struct {
             std.debug.print("Table ID: {d}\n", .{i});
             table.print();
         }
-        if (self.data) |data| {
-            for (data.items) |item| {
-                std.debug.print("{x} ", .{item});
-            }
-            std.debug.print("\n", .{});
-        }
+        // if (self.data) |data| {
+        //     for (data.items) |item| {
+        //         std.debug.print("({d},{d},{d}) ", .{item.r});
+        //     }
+        //     std.debug.print("\n", .{});
+        // }
         std.debug.print("Huffman data length: {d}\n", .{self._huffman_data.?.items.len});
+    }
+    fn _generate_huffman_codes(_: *Image, h_table: *HuffmanTable) void {
+        var code: u32 = 0;
+        for (0..h_table.offsets.len - 1) |i| {
+            for (h_table.offsets[i]..h_table.offsets[i + 1]) |j| {
+                h_table.codes[j] = code;
+                code += 1;
+            }
+            code <<= 1;
+        }
+    }
+    fn _decode_huffman_data(self: *Image, allocator: *std.mem.Allocator) (error{OutOfMemory} || JPEG_ERRORS || BITREADER_ERRORS)![]MCU {
+        const mcu_height: u32 = (self.height + 7) / 8;
+        const mcu_width: u32 = (self.width + 7) / 8;
+        const mcus: []MCU = try allocator.alloc(MCU, mcu_height * mcu_width);
+        for (mcus) |*mcu| {
+            mcu.*.init();
+        }
+        for (&self._huffman_dct_tables) |*table| {
+            if (table.*.set) {
+                self._generate_huffman_codes(table);
+            }
+        }
+
+        for (&self._huffman_act_tables) |*table| {
+            if (table.*.set) {
+                self._generate_huffman_codes(table);
+            }
+        }
+
+        var bit_reader: BitReader = BitReader{ .data = &self._huffman_data.? };
+        var previous_dcs: [3]i32 = [_]i32{0} ** 3;
+        for (0..mcus.len) |i| {
+            if (self._restart_interval != 0 and i % self._restart_interval == 0) {
+                previous_dcs[0] = 0;
+                previous_dcs[1] = 0;
+                previous_dcs[2] = 0;
+                bit_reader.align_reader();
+            }
+            for (0..self._num_components) |j| {
+                try _decode_MCU_component(self, &bit_reader, mcus[i].get(@intCast(j)), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+            }
+        }
+
+        return mcus;
+    }
+    fn _get_next_symbol(_: *Image, bit_reader: *BitReader, h_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS)!u8 {
+        var current_code: i32 = 0;
+        for (0..h_table.offsets.len - 1) |i| {
+            const bit: i32 = @as(i32, @intCast(try bit_reader.read_bit()));
+            current_code = (current_code << 1) | bit;
+            for (h_table.offsets[i]..h_table.offsets[i + 1]) |j| {
+                if (current_code == h_table.codes[j]) {
+                    return h_table.symbols[j];
+                }
+            }
+        }
+        return JPEG_ERRORS.HUFFMAN_DECODING;
+    }
+    fn _decode_MCU_component(self: *Image, bit_reader: *BitReader, color_channel: []i32, previous_dc: *i32, dct_table: *HuffmanTable, act_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS)!void {
+        const length: u8 = try _get_next_symbol(self, bit_reader, dct_table);
+        if (length > 11) {
+            return JPEG_ERRORS.HUFFMAN_DECODING;
+        }
+        var coeff: i32 = @as(i32, @intCast(try bit_reader.read_bits(length)));
+        if (length != 0 and coeff < (@as(i32, 1) << @as(u5, @intCast(length - 1)))) {
+            coeff -= (@as(i32, 1) << @as(u5, @intCast(length))) - 1;
+        }
+        color_channel[0] = coeff + previous_dc.*;
+        previous_dc.* = color_channel[0];
+
+        var i: u32 = 1;
+        while (i < color_channel.len) {
+            const symbol: u8 = try self._get_next_symbol(bit_reader, act_table);
+            if (symbol == 0x00) {
+                for (i..color_channel.len) |_| {
+                    color_channel[zig_zag_map[i]] = 0;
+                    i += 1;
+                }
+                return;
+            }
+            var num_zeroes: u8 = symbol >> 4;
+            const coeff_length: u8 = symbol & 0x0F;
+
+            if (symbol == 0xF0) {
+                num_zeroes = 16;
+            }
+            //std.debug.print("{d} {d} {d}\n", .{ num_zeroes, i + num_zeroes, color_channel.len });
+            if (i + num_zeroes >= color_channel.len) {
+                return JPEG_ERRORS.HUFFMAN_DECODING;
+            }
+
+            for (0..num_zeroes) |_| {
+                color_channel[zig_zag_map[i]] = 0;
+                i += 1;
+            }
+
+            if (coeff_length > 10) {
+                return JPEG_ERRORS.HUFFMAN_DECODING;
+            }
+
+            if (coeff_length != 0) {
+                coeff = @as(i32, @intCast(try bit_reader.read_bits(coeff_length)));
+                if (coeff < (@as(i32, 1) << @as(u5, @intCast(coeff_length - 1)))) {
+                    coeff -= (@as(i32, 1) << @as(u5, @intCast(coeff_length))) - 1;
+                }
+                color_channel[zig_zag_map[i]] = coeff;
+                i += 1;
+            }
+        }
     }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(Pixel).init(allocator.*);
-        const mcu_height: u32 = (self.height + 7) / 8;
-        const mcu_width: u32 = (self.width + 7) / 8;
-        const mcus: []MCU = allocator.alloc(MCU, mcu_height * mcu_width);
-        for (mcus) |mcu| {
-            mcu.init();
-        }
+        const mcus: []MCU = try self._decode_huffman_data(allocator);
         defer allocator.free(mcus);
-        const padding_size: u32 = self.width % 4;
-        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+        const mcu_width: u32 = (self.width + 7) / 8;
+        //const padding_size: u32 = self.width % 4;
+        //const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
 
-        for (self.height - 1..0) |i| {
-            const mcu_row: u32 = i / 8;
-            const pixel_row: u32 = i % 8;
+        // store color data to be used later in either writing to another file or direct access in code
+        var i: usize = self.height;
+        while (i > 0) {
+            i -= 1;
+            const mcu_row: u32 = @as(u32, @intCast(i)) / 8;
+            const pixel_row: u32 = @as(u32, @intCast(i)) % 8;
             for (0..self.width) |j| {
-                const mcu_col: u32 = j / 8;
-                const pixel_col: u32 = j % 8;
+                const mcu_col: u32 = @as(u32, @intCast(j)) / 8;
+                const pixel_col: u32 = @as(u32, @intCast(j)) % 8;
                 const mcu_index = mcu_row * mcu_width + mcu_col;
                 const pixel_index = pixel_row * 8 + pixel_col;
-                self.data.?.append(Pixel{
-                    .r = mcus[mcu_index].r[pixel_index],
-                    .g = mcus[mcu_index].g[pixel_index],
-                    .b = mcus[mcu_index].b[pixel_index],
+                try self.data.?.append(Pixel{
+                    .r = @truncate(@as(u32, @bitCast(mcus[mcu_index].r[pixel_index]))),
+                    .g = @truncate(@as(u32, @bitCast(mcus[mcu_index].g[pixel_index]))),
+                    .b = @truncate(@as(u32, @bitCast(mcus[mcu_index].b[pixel_index]))),
                 });
             }
         }
     }
-    fn _little_endian(_: *Image, file: *std.fs.File, num_bytes: comptime_int, i: u32) !void {
+    fn _little_endian(_: *Image, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
         switch (num_bytes) {
             2 => {
-                file.writer().writeInt(u16, i, std.builtin.Endian.little);
+                try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
             },
             4 => {
-                file.writer().writeInt(u32, i, std.builtin.Endian.little);
+                try file.writer().writeInt(u32, i, std.builtin.Endian.little);
             },
             else => unreachable,
         }
     }
-    pub fn write_BMP(self: *Image, file_name: []const u8) IMAGE_ERRORS!void {
+    pub fn write_BMP(self: *Image, file_name: []const u8) !void {
         if (!self._loaded) {
             return IMAGE_ERRORS.NOT_LOADED;
         }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
-        image_file.writer().writeByte('B');
-        image_file.writer().writeByte('M');
+        try image_file.writer().writeByte('B');
+        try image_file.writer().writeByte('M');
         const padding_size: u32 = self.width % 4;
         const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
-        self._little_endian(&image_file, 4, size);
-        self._little_endian(&image_file, 4, 0);
-        self._little_endian(&image_file, 4, 0x1A);
-        self._little_endian(&image_file, 4, 12);
-        self._little_endian(&image_file, 2, self.width);
-        self._little_endian(&image_file, 2, self.height);
-        self._little_endian(&image_file, 2, 1);
-        self._little_endian(&image_file, 2, 24);
+        try self._little_endian(&image_file, 4, size);
+        try self._little_endian(&image_file, 4, 0);
+        try self._little_endian(&image_file, 4, 0x1A);
+        try self._little_endian(&image_file, 4, 12);
+        try self._little_endian(&image_file, 2, self.width);
+        try self._little_endian(&image_file, 2, self.height);
+        try self._little_endian(&image_file, 2, 1);
+        try self._little_endian(&image_file, 2, 24);
         for (0..self.height) |i| {
             for (0..self.width) |j| {
-                const pixel: *Pixel = &self.data.?.items[i * self.height + j];
-                image_file.writer().writeByte(pixel.b);
-                image_file.writer().writeByte(pixel.g);
-                image_file.writer().writeByte(pixel.r);
+                const pixel: *Pixel = &self.data.?.items[i * self.width + j];
+                try image_file.writer().writeByte(pixel.b);
+                try image_file.writer().writeByte(pixel.g);
+                try image_file.writer().writeByte(pixel.r);
             }
             for (0..padding_size) |_| {
-                image_file.writer().writeByte(0);
+                try image_file.writer().writeByte(0);
             }
         }
     }
@@ -621,12 +779,24 @@ const Image = struct {
     }
 };
 
-test "JPEG" {
+test "CAT" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = Image{};
     try image.load_JPEG("cat.jpg", &allocator);
-    //try image.write_BMP("cat.bmp");
+    try image.write_BMP("cat.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GORILLA" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("gorilla.jpg", &allocator);
+    try image.write_BMP("gorilla.bmp");
     image.clean_up();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
