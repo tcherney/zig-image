@@ -170,7 +170,7 @@ const MCU = struct {
         self.g = &self.cb;
         self.b = &self.cr;
     }
-    pub fn get(self: *MCU, index: u32) *[64]i32 {
+    pub fn get(self: *MCU, index: usize) *[64]i32 {
         switch (index) {
             0 => return &self.y,
             1 => return &self.cb,
@@ -632,7 +632,7 @@ const Image = struct {
                 bit_reader.align_reader();
             }
             for (0..self._num_components) |j| {
-                try _decode_MCU_component(self, &bit_reader, mcus[i].get(@intCast(j)), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+                try _decode_MCU_component(self, &bit_reader, mcus[i].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
             }
         }
 
@@ -703,10 +703,21 @@ const Image = struct {
             }
         }
     }
+    fn _de_quant_data(self: *Image, mcus: []MCU) !void {
+        for (0..mcus.len) |i| {
+            for (0..self._num_components) |j| {
+                for (0..mcus[i].get(j).len) |k| {
+                    mcus[i].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
+                }
+            }
+        }
+    }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(Pixel).init(allocator.*);
         const mcus: []MCU = try self._decode_huffman_data(allocator);
         defer allocator.free(mcus);
+
+        try self._de_quant_data(mcus);
         const mcu_width: u32 = (self.width + 7) / 8;
         //const padding_size: u32 = self.width % 4;
         //const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
