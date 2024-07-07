@@ -109,6 +109,7 @@ const JPEG_ERRORS = error{
     INVALID_MARKER,
     INVALID_COMPONENT_LENGTH,
     UNINITIALIZED_TABLE,
+    INVALID_SAMPLING_FACTOR,
 };
 
 const IMAGE_ERRORS = error{
@@ -253,6 +254,13 @@ const Image = struct {
     _succcessive_approximation_low: u8 = 0,
     _huffman_data: ?std.ArrayList(u8) = null,
     _loaded: bool = false,
+
+    mcu_height: u32 = 0,
+    mcu_width: u32 = 0,
+    mcu_height_real: u32 = 0,
+    mcu_width_real: u32 = 0,
+    horizontal_sampling_factor: u8 = 1,
+    vertical_sampling_factor: u8 = 1,
     fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
@@ -274,6 +282,11 @@ const Image = struct {
         if (self.height == 0 or self.width == 0) {
             return JPEG_ERRORS.INVALID_HEADER;
         }
+
+        self.mcu_height = (self.height + 7) / 8;
+        self.mcu_width = (self.width + 7) / 8;
+        self.mcu_height_real = self.mcu_height;
+        self.mcu_width_real = self.mcu_width;
 
         self._num_components = buffer[index.* + 1];
         std.debug.print("num_components {d}\n", .{self._num_components});
@@ -311,6 +324,23 @@ const Image = struct {
             self._color_components[component_id - 1].vertical_sampling_factor = sampling_factor & 0x0F;
             self._color_components[component_id - 1].quantization_table_id = buffer[index.* + 1];
             index.* += 1;
+            if (component_id == 1) {
+                if ((self._color_components[component_id - 1].horizontal_sampling_factor != 1 and self._color_components[component_id - 1] != 2) or
+                    (self._color_components[component_id - 1].vertical_sampling_factor != 1 and self._color_components[component_id - 1].vertical_sampling_factor != 2))
+                {
+                    return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
+                }
+                if (self._color_components[component_id - 1].horizontal_sampling_factor == 2 and self.mcu_width % 2 == 1) {
+                    self.mcu_width_real += 1;
+                }
+                if (self._color_components[component_id - 1].vertical_sampling_factor == 2 and self.mcu_height % 2 == 1) {
+                    self.mcu_height_real += 1;
+                }
+            } else {
+                if (self._color_components[component_id - 1].horizontal_sampling_facto != 1 or self._color_components[component_id - 1].vertical_sampling_factor != 1) {
+                    return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
+                }
+            }
             if (self._color_components[component_id - 1].quantization_table_id > 3) {
                 return JPEG_ERRORS.INVALID_COMPONENT_ID;
             }
@@ -620,9 +650,7 @@ const Image = struct {
         }
     }
     fn _decode_huffman_data(self: *Image, allocator: *std.mem.Allocator) (error{OutOfMemory} || JPEG_ERRORS || BITREADER_ERRORS)![]MCU {
-        const mcu_height: u32 = (self.height + 7) / 8;
-        const mcu_width: u32 = (self.width + 7) / 8;
-        const mcus: []MCU = try allocator.alloc(MCU, mcu_height * mcu_width);
+        const mcus: []MCU = try allocator.alloc(MCU, self.mcu_height_real * self.mcu_width_real);
         for (mcus) |*mcu| {
             mcu.*.init();
         }
@@ -640,15 +668,23 @@ const Image = struct {
 
         var bit_reader: BitReader = BitReader{ .data = &self._huffman_data.? };
         var previous_dcs: [3]i32 = [_]i32{0} ** 3;
-        for (0..mcus.len) |i| {
-            if (self._restart_interval != 0 and i % self._restart_interval == 0) {
-                previous_dcs[0] = 0;
-                previous_dcs[1] = 0;
-                previous_dcs[2] = 0;
-                bit_reader.align_reader();
-            }
-            for (0..self._num_components) |j| {
-                try _decode_MCU_component(self, &bit_reader, mcus[i].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+        var y: usize = 0;
+        var x: usize = 0;
+        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+                if (self._restart_interval != 0 and (y * self.mcu_width_real + x) % self._restart_interval == 0) {
+                    previous_dcs[0] = 0;
+                    previous_dcs[1] = 0;
+                    previous_dcs[2] = 0;
+                    bit_reader.align_reader();
+                }
+                for (0..self._num_components) |j| {
+                    for (0..self._color_components[j].vertical_sampling_factor) |v| {
+                        for (0..self._color_components[j].horizontal_sampling_factor) |h| {
+                            try _decode_MCU_component(self, &bit_reader, mcus[(y + v) * self.mcu_width_real + (x + h)].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+                        }
+                    }
+                }
             }
         }
 
@@ -720,10 +756,18 @@ const Image = struct {
         }
     }
     fn _de_quant_data(self: *Image, mcus: []MCU) !void {
-        for (0..mcus.len) |i| {
-            for (0..self._num_components) |j| {
-                for (0..mcus[i].get(j).len) |k| {
-                    mcus[i].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
+        var y: usize = 0;
+        var x: usize = 0;
+        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+                for (0..self._num_components) |j| {
+                    for (0..self._color_components[j].vertical_sampling_factor) |v| {
+                        for (0..self._color_components[j].horizontal_sampling_factor) |h| {
+                            for (0..mcus[(y + v) * self.mcu_width_real + (x + h)].get(j).len) |k| {
+                                mcus[(y + v) * self.mcu_width_real + (x + h)].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -867,14 +911,22 @@ const Image = struct {
         }
     }
     fn _inverse_dct(self: *Image, mcus: []MCU) void {
-        for (0..mcus.len) |i| {
-            for (0..self._num_components) |j| {
-                self._inverse_dct_component(mcus[i].get(j));
+        var y: usize = 0;
+        var x: usize = 0;
+        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+                for (0..self._num_components) |j| {
+                    for (0..self._color_components[j].vertical_sampling_factor) |v| {
+                        for (0..self._color_components[j].horizontal_sampling_factor) |h| {
+                            self._inverse_dct_component(mcus[(y + v) * self.mcu_width_real + (x + h)].get(j));
+                        }
+                    }
+                }
             }
         }
     }
-    fn _ycb_rgb(_: *Image, mcus: []MCU) void {
-        for (0..mcus.len) |i| {
+    fn _ycb_rgb(self: *Image, mcus: []MCU) void {
+        for (0..(self.mcu_height * self.mcu_width_real)) |i| {
             for (0..64) |j| {
                 var r: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) + 1.402 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
                 var g: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) - 0.344 * @as(f32, @floatFromInt(mcus[i].cb[j])) - 0.714 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
@@ -910,8 +962,6 @@ const Image = struct {
         try self._de_quant_data(mcus);
         self._inverse_dct(mcus);
         self._ycb_rgb(mcus);
-        const mcu_width: u32 = (self.width + 7) / 8;
-
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = self.height;
         while (i > 0) {
@@ -921,7 +971,7 @@ const Image = struct {
             for (0..self.width) |j| {
                 const mcu_col: u32 = @as(u32, @intCast(j)) / 8;
                 const pixel_col: u32 = @as(u32, @intCast(j)) % 8;
-                const mcu_index = mcu_row * mcu_width + mcu_col;
+                const mcu_index = mcu_row * self.mcu_width_real + mcu_col;
                 const pixel_index = pixel_row * 8 + pixel_col;
                 try self.data.?.append(Pixel{
                     .r = @truncate(@as(u32, @bitCast(mcus[mcu_index].r[pixel_index]))),
