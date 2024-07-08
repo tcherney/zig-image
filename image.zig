@@ -1,6 +1,5 @@
 //https://yasoob.me/posts/understanding-and-writing-jpeg-decoder-in-python/#jpeg-decoding
 //https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4
-
 const std = @import("std");
 
 const JPEG_HEADERS = enum(u8) {
@@ -128,10 +127,10 @@ const zig_zag_map: [64]u8 = [_]u8{
 };
 
 const HuffmanTable = struct {
-    symbols: [162]u8 = [_]u8{0} ** 162,
+    symbols: [176]u8 = [_]u8{0} ** 176,
     offsets: [17]u8 = [_]u8{0} ** 17,
     set: bool = false,
-    codes: [162]u32 = [_]u32{0} ** 162,
+    codes: [176]u32 = [_]u32{0} ** 176,
     pub fn print(self: *const HuffmanTable) void {
         if (self.set) {
             std.debug.print("Symbols: \n", .{});
@@ -207,6 +206,7 @@ const BitReader = struct {
     data: *std.ArrayList(u8),
     pub fn read_bit(self: *BitReader) BITREADER_ERRORS!u32 {
         if (self.next_byte >= self.data.items.len) {
+            std.debug.print("{d} {d}\n", .{ self.next_byte, self.data.items.len });
             return BITREADER_ERRORS.INVALID_READ;
         }
         const bit: u32 = (self.data.items[self.next_byte] >> @as(u3, @intCast(7 - self.next_bit))) & 1;
@@ -259,8 +259,8 @@ const Image = struct {
     mcu_width: u32 = 0,
     mcu_height_real: u32 = 0,
     mcu_width_real: u32 = 0,
-    horizontal_sampling_factor: u8 = 1,
-    vertical_sampling_factor: u8 = 1,
+    horizontal_sampling_factor: u32 = 1,
+    vertical_sampling_factor: u32 = 1,
     fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
@@ -325,19 +325,21 @@ const Image = struct {
             self._color_components[component_id - 1].quantization_table_id = buffer[index.* + 1];
             index.* += 1;
             if (component_id == 1) {
-                if ((self._color_components[component_id - 1].horizontal_sampling_factor != 1 and self._color_components[component_id - 1] != 2) or
+                if ((self._color_components[component_id - 1].horizontal_sampling_factor != 1 and self._color_components[component_id - 1].horizontal_sampling_factor != 2) or
                     (self._color_components[component_id - 1].vertical_sampling_factor != 1 and self._color_components[component_id - 1].vertical_sampling_factor != 2))
                 {
                     return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
                 }
                 if (self._color_components[component_id - 1].horizontal_sampling_factor == 2 and self.mcu_width % 2 == 1) {
                     self.mcu_width_real += 1;
+                    std.debug.print("incrementing real\n", .{});
                 }
                 if (self._color_components[component_id - 1].vertical_sampling_factor == 2 and self.mcu_height % 2 == 1) {
                     self.mcu_height_real += 1;
+                    std.debug.print("incrementing real\n", .{});
                 }
             } else {
-                if (self._color_components[component_id - 1].horizontal_sampling_facto != 1 or self._color_components[component_id - 1].vertical_sampling_factor != 1) {
+                if (self._color_components[component_id - 1].horizontal_sampling_factor != 1 or self._color_components[component_id - 1].vertical_sampling_factor != 1) {
                     return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
                 }
             }
@@ -394,7 +396,7 @@ const Image = struct {
         if (length - 4 != 0) {
             return JPEG_ERRORS.INVALID_RESTART_MARKER;
         }
-        std.debug.print("Restart interval {d}", .{self._restart_interval});
+        std.debug.print("Restart interval {d}\n", .{self._restart_interval});
     }
     fn _read_start_of_scan(self: *Image, buffer: []u8, index: *u32, allocator: *std.mem.Allocator) JPEG_ERRORS!void {
         std.debug.print("Reading SOS marker\n", .{});
@@ -480,7 +482,7 @@ const Image = struct {
                 index.* += 1;
                 huff_table.offsets[i] = all_symbols;
             }
-            if (all_symbols > 162) {
+            if (all_symbols > 176) {
                 return JPEG_ERRORS.TOO_MANY_HUFFMAN_SYMBOLS;
             }
             for (0..all_symbols) |j| {
@@ -650,6 +652,7 @@ const Image = struct {
         }
     }
     fn _decode_huffman_data(self: *Image, allocator: *std.mem.Allocator) (error{OutOfMemory} || JPEG_ERRORS || BITREADER_ERRORS)![]MCU {
+        std.debug.print("{d} {d} real {d} {d}\n", .{ self.mcu_width, self.mcu_height, self.mcu_width_real, self.mcu_height_real });
         const mcus: []MCU = try allocator.alloc(MCU, self.mcu_height_real * self.mcu_width_real);
         for (mcus) |*mcu| {
             mcu.*.init();
@@ -670,9 +673,10 @@ const Image = struct {
         var previous_dcs: [3]i32 = [_]i32{0} ** 3;
         var y: usize = 0;
         var x: usize = 0;
+        const restart_interval: u32 = self._restart_interval * self.horizontal_sampling_factor * self.vertical_sampling_factor;
         while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
             while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
-                if (self._restart_interval != 0 and (y * self.mcu_width_real + x) % self._restart_interval == 0) {
+                if (restart_interval != 0 and (y * self.mcu_width_real + x) % restart_interval == 0) {
                     previous_dcs[0] = 0;
                     previous_dcs[1] = 0;
                     previous_dcs[2] = 0;
@@ -686,6 +690,7 @@ const Image = struct {
                     }
                 }
             }
+            x = 0;
         }
 
         return mcus;
@@ -758,18 +763,20 @@ const Image = struct {
     fn _de_quant_data(self: *Image, mcus: []MCU) !void {
         var y: usize = 0;
         var x: usize = 0;
+        std.debug.print("sampling factor {d} {d}\n", .{ self.vertical_sampling_factor, self.horizontal_sampling_factor });
         while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
             while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
                         for (0..self._color_components[j].horizontal_sampling_factor) |h| {
-                            for (0..mcus[(y + v) * self.mcu_width_real + (x + h)].get(j).len) |k| {
+                            for (0..64) |k| {
                                 mcus[(y + v) * self.mcu_width_real + (x + h)].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
                             }
                         }
                     }
                 }
             }
+            x = 0;
         }
     }
     // inverse dct based on AAN
@@ -923,14 +930,21 @@ const Image = struct {
                     }
                 }
             }
+            x = 0;
         }
     }
-    fn _ycb_rgb(self: *Image, mcus: []MCU) void {
-        for (0..(self.mcu_height * self.mcu_width_real)) |i| {
-            for (0..64) |j| {
-                var r: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) + 1.402 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
-                var g: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) - 0.344 * @as(f32, @floatFromInt(mcus[i].cb[j])) - 0.714 * @as(f32, @floatFromInt(mcus[i].cr[j])) + 128.0;
-                var b: f32 = @as(f32, @floatFromInt(mcus[i].y[j])) + 1.722 * @as(f32, @floatFromInt(mcus[i].cb[j])) + 128.0;
+    fn _ycb_rgb_mcu(self: *Image, mcu: *MCU, cbcr: *MCU, v: usize, h: usize) void {
+        var y: usize = 7;
+        var x: usize = 7;
+        while (y >= 0) : (y -= 1) {
+            while (x >= 0) : (x -= 1) {
+                const pixel: usize = y * 8 + x;
+                const cbcr_pixel_row: usize = y / self.vertical_sampling_factor + 4 * v;
+                const cbcr_pixel_col: usize = x / self.horizontal_sampling_factor + 4 * h;
+                const cbcr_pixel = cbcr_pixel_row * 8 + cbcr_pixel_col;
+                var r: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) + 1.402 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var g: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) - 0.344 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var b: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) + 1.722 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) + 128.0;
                 if (r < 0) {
                     r = 0;
                 }
@@ -949,10 +963,33 @@ const Image = struct {
                 if (b > 255) {
                     b = 255;
                 }
-                mcus[i].r[j] = @as(i32, @intFromFloat(r));
-                mcus[i].g[j] = @as(i32, @intFromFloat(g));
-                mcus[i].b[j] = @as(i32, @intFromFloat(b));
+                mcu.r[pixel] = @as(i32, @intFromFloat(r));
+                mcu.g[pixel] = @as(i32, @intFromFloat(g));
+                mcu.b[pixel] = @as(i32, @intFromFloat(b));
+                if (x == 0) break;
             }
+            x = 7;
+            if (y == 0) break;
+        }
+    }
+    fn _ycb_rgb(self: *Image, mcus: []MCU) void {
+        var y: usize = 0;
+        var x: usize = 0;
+        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+                const cbcr: *MCU = &mcus[y * self.mcu_width_real + x];
+                var v: usize = self.vertical_sampling_factor - 1;
+                var h: usize = self.horizontal_sampling_factor - 1;
+                while (v < self.vertical_sampling_factor) : (v -= 1) {
+                    while (h < self.horizontal_sampling_factor) : (h -= 1) {
+                        const mcu: *MCU = &mcus[(y + v) * self.mcu_width_real + (x + h)];
+                        self._ycb_rgb_mcu(mcu, cbcr, v, h);
+                        if (h == 0) break;
+                    }
+                    if (v == 0) break;
+                }
+            }
+            x = 0;
         }
     }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
@@ -962,9 +999,10 @@ const Image = struct {
         try self._de_quant_data(mcus);
         self._inverse_dct(mcus);
         self._ycb_rgb(mcus);
+
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = self.height;
-        while (i > 0) {
+        while (i >= 0) {
             i -= 1;
             const mcu_row: u32 = @as(u32, @intCast(i)) / 8;
             const pixel_row: u32 = @as(u32, @intCast(i)) % 8;
@@ -972,14 +1010,18 @@ const Image = struct {
                 const mcu_col: u32 = @as(u32, @intCast(j)) / 8;
                 const pixel_col: u32 = @as(u32, @intCast(j)) % 8;
                 const mcu_index = mcu_row * self.mcu_width_real + mcu_col;
+                //std.debug.print("writing index {d}\n", .{mcu_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
+                //std.debug.print("pixel ({d}) ({d}) ({d})\n", .{ mcus[mcu_index].r[pixel_index], mcus[mcu_index].g[pixel_index], mcus[mcu_index].b[pixel_index] });
                 try self.data.?.append(Pixel{
                     .r = @truncate(@as(u32, @bitCast(mcus[mcu_index].r[pixel_index]))),
                     .g = @truncate(@as(u32, @bitCast(mcus[mcu_index].g[pixel_index]))),
                     .b = @truncate(@as(u32, @bitCast(mcus[mcu_index].b[pixel_index]))),
                 });
             }
+            if (i == 0) break;
         }
+        std.debug.print("number of pixels {d}\n", .{self.data.?.items.len});
     }
     fn _little_endian(_: *Image, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
         switch (num_bytes) {
@@ -1036,7 +1078,7 @@ const Image = struct {
     }
     pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         try self._read_JPEG(file_name, allocator);
-        self.print();
+        //self.print();
         try self._gen_rgb_data(allocator);
         self._loaded = true;
     }
@@ -1047,7 +1089,7 @@ test "CAT" {
     var allocator = gpa.allocator();
     var image = Image{};
     try image.load_JPEG("cat.jpg", &allocator);
-    try image.convert_grayscale();
+    //try image.convert_grayscale();
     try image.write_BMP("cat.bmp");
     image.clean_up();
     if (gpa.deinit() == .leak) {
@@ -1067,9 +1109,45 @@ test "GORILLA" {
     }
 }
 
-test "MCU" {
-    var mcu = MCU{};
-    mcu.init();
-    mcu.r[1] = 5;
-    try std.testing.expect(mcu.r[1] == 5 and mcu.y[1] == 5);
+test "FISH2_1V" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1V.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
 }
+
+test "FISH2_1H" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1H.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "FISH2_1" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+// test "MCU" {
+//     var mcu = MCU{};
+//     mcu.init();
+//     mcu.r[1] = 5;
+//     try std.testing.expect(mcu.r[1] == 5 and mcu.y[1] == 5);
+// }
