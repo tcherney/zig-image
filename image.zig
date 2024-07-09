@@ -171,22 +171,23 @@ const ColorComponent = struct {
     quantization_table_id: u8 = 0,
     huffman_dct_table_id: u8 = 0,
     huffman_act_table_id: u8 = 0,
-    used: bool = false,
+    used_in_frame: bool = false,
+    used_in_scan: bool = false,
 };
 
-const MCU = struct {
+const Block = struct {
     y: [64]i32 = [_]i32{0} ** 64,
     r: []i32 = undefined,
     cb: [64]i32 = [_]i32{0} ** 64,
     g: []i32 = undefined,
     cr: [64]i32 = [_]i32{0} ** 64,
     b: []i32 = undefined,
-    pub fn init(self: *MCU) void {
+    pub fn init(self: *Block) void {
         self.r = &self.y;
         self.g = &self.cb;
         self.b = &self.cr;
     }
-    pub fn get(self: *MCU, index: usize) *[64]i32 {
+    pub fn get(self: *Block, index: usize) *[64]i32 {
         switch (index) {
             0 => return &self.y,
             1 => return &self.cb,
@@ -200,20 +201,98 @@ const BITREADER_ERRORS = error{
     INVALID_READ,
 };
 
+const BYTEFILESTREAM_ERRORS = error{
+    OUT_OF_BOUNDS,
+};
+
+const ByteFileStream = struct {
+    _index: usize = 0,
+    _buffer: []u8 = undefined,
+    _allocator: *std.mem.Allocator = undefined,
+    pub fn init(self: *ByteFileStream, file_name: []const u8, allocator: *std.mem.Allocator) !void {
+        self._allocator = allocator;
+        const _file = try std.fs.cwd().openFile(file_name, .{});
+        defer _file.close();
+        const size_limit = std.math.maxInt(u32);
+        self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
+        self._index = 0;
+    }
+    pub fn clean_up(self: *ByteFileStream) void {
+        self._allocator.free(self._buffer);
+    }
+    pub fn getPos(self: *ByteFileStream) usize {
+        return self._index;
+    }
+    pub fn getEndPos(self: *ByteFileStream) usize {
+        return self._buffer.len - 1;
+    }
+    pub fn peek(self: *ByteFileStream) BYTEFILESTREAM_ERRORS!u8 {
+        if (self._index > self._buffer.len - 1) {
+            return BYTEFILESTREAM_ERRORS.OUT_OF_BOUNDS;
+        }
+        return self._buffer[self._index];
+    }
+    pub fn readByte(self: *ByteFileStream) BYTEFILESTREAM_ERRORS!u8 {
+        if (self._index > self._buffer.len - 1) {
+            return BYTEFILESTREAM_ERRORS.OUT_OF_BOUNDS;
+        }
+        self._index += 1;
+        return self._buffer[self._index - 1];
+    }
+};
+
 const BitReader = struct {
     next_byte: u32 = 0,
     next_bit: u32 = 0,
-    data: *std.ArrayList(u8),
+    _byte_stream: ByteFileStream = undefined,
+    pub fn init(self: *BitReader, file_name: []const u8, allocator: *std.mem.Allocator) !void {
+        self._byte_stream = ByteFileStream{};
+        try self._byte_stream.init(file_name, allocator);
+    }
+    pub fn clean_up(self: *BitReader) void {
+        self._byte_stream.clean_up();
+    }
+    pub fn has_bits(self: *BitReader) bool {
+        self._byte_stream.getPos() != self._byte_stream.getEndPos();
+    }
+    pub fn read_byte(self: *BitReader) BYTEFILESTREAM_ERRORS!u8 {
+        self.next_bit = 0;
+        return try self._byte_stream.readByte();
+    }
+    pub fn read_word(self: *BitReader) BYTEFILESTREAM_ERRORS!u16 {
+        self.next_bit = 0;
+        var ret_word: u16 = @as(u16, try self._byte_stream.readByte());
+        ret_word <<= 8;
+        ret_word += try self._byte_stream.readByte();
+        return ret_word;
+    }
     pub fn read_bit(self: *BitReader) BITREADER_ERRORS!u32 {
-        if (self.next_byte >= self.data.items.len) {
-            std.debug.print("{d} {d}\n", .{ self.next_byte, self.data.items.len });
-            return BITREADER_ERRORS.INVALID_READ;
+        if (self.next_bit == 0) {
+            if (!self.has_bits()) {
+                return BITREADER_ERRORS.INVALID_READ;
+            }
+            self.next_byte = self._byte_stream.readByte();
+            while (self.next_byte == @intFromEnum(JPEG_HEADERS.HEADER)) {
+                var marker: u8 = self._byte_stream.peek();
+                while (marker == @intFromEnum(JPEG_HEADERS.HEADER)) {
+                    _ = self._byte_stream.readByte();
+                    marker = self._byte_stream.peek();
+                }
+                if (marker == 0x00) {
+                    _ = self._byte_stream.readByte();
+                    break;
+                } else if (marker >= @intFromEnum(JPEG_HEADERS.RST0) and marker <= @intFromEnum(JPEG_HEADERS.RST7)) {
+                    _ = self._byte_stream.readByte();
+                    self.next_byte = self._byte_stream.readByte();
+                } else {
+                    return BITREADER_ERRORS.INVALID_READ;
+                }
+            }
         }
-        const bit: u32 = (self.data.items[self.next_byte] >> @as(u3, @intCast(7 - self.next_bit))) & 1;
+        const bit: u32 = (self.next_byte >> @as(u3, @intCast(7 - self.next_bit))) & 1;
         self.next_bit += 1;
         if (self.next_bit == 8) {
             self.next_bit = 0;
-            self.next_byte += 1;
         }
         return bit;
     }
@@ -226,13 +305,7 @@ const BitReader = struct {
         return bits;
     }
     pub fn align_reader(self: *BitReader) void {
-        if (self.next_byte >= self.data.items.len) {
-            return;
-        }
-        if (self.next_bit != 0) {
-            self.next_bit = 0;
-            self.next_byte += 1;
-        }
+        self.next_bit = 0;
     }
 };
 
@@ -252,45 +325,41 @@ const Image = struct {
     _end_of_selection: u8 = 63,
     _succcessive_approximation_high: u8 = 0,
     _succcessive_approximation_low: u8 = 0,
-    _huffman_data: ?std.ArrayList(u8) = null,
     _loaded: bool = false,
-
-    mcu_height: u32 = 0,
-    mcu_width: u32 = 0,
-    mcu_height_real: u32 = 0,
-    mcu_width_real: u32 = 0,
+    _components_in_scan: u8 = 0,
+    _blocks: []Block = undefined,
+    _block_height: u32 = 0,
+    _block_width: u32 = 0,
+    _block_height_real: u32 = 0,
+    _block_width_real: u32 = 0,
     horizontal_sampling_factor: u32 = 1,
     vertical_sampling_factor: u32 = 1,
-    fn _read_start_of_frame(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_start_of_frame(self: *Image, bit_reader: *BitReader) (BYTEFILESTREAM_ERRORS || JPEG_ERRORS)!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
             return JPEG_ERRORS.INVALID_HEADER;
         }
 
-        const length: u16 = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
-        const precision: u8 = buffer[index.* + 1];
-        index.* += 1;
+        const length: u16 = try bit_reader.read_word();
+
+        const precision: u8 = try bit_reader.read_byte();
         if (precision != 8) {
             return JPEG_ERRORS.INVALID_HEADER;
         }
-        self.height = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
-        self.width = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
+        self.height = try bit_reader.read_word();
+        self.width = try bit_reader.read_word();
         std.debug.print("width {d} height {d}\n", .{ self.width, self.height });
         if (self.height == 0 or self.width == 0) {
             return JPEG_ERRORS.INVALID_HEADER;
         }
 
-        self.mcu_height = (self.height + 7) / 8;
-        self.mcu_width = (self.width + 7) / 8;
-        self.mcu_height_real = self.mcu_height;
-        self.mcu_width_real = self.mcu_width;
+        self.block_height = (self.height + 7) / 8;
+        self.block_width = (self.width + 7) / 8;
+        self.block_height_real = self.block_height;
+        self.block_width_real = self.block_width;
 
-        self._num_components = buffer[index.* + 1];
+        self._num_components = try bit_reader.read_byte();
         std.debug.print("num_components {d}\n", .{self._num_components});
-        index.* += 1;
         if (self._num_components == 4) {
             return JPEG_ERRORS.CMYK_NOT_SUPPORTED;
         }
@@ -298,8 +367,7 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_HEADER;
         }
         for (0..self._num_components) |_| {
-            var component_id = buffer[index.* + 1];
-            index.* += 1;
+            var component_id = bit_reader.read_byte();
             if (component_id == 0) {
                 self._zero_based = true;
             }
@@ -313,29 +381,27 @@ const Image = struct {
                 return JPEG_ERRORS.INVALID_COMPONENT_ID;
             }
 
-            if (self._color_components[component_id - 1].used) {
+            if (self._color_components[component_id - 1].used_in_frame) {
                 return JPEG_ERRORS.INVALID_COMPONENT_ID;
             }
 
-            self._color_components[component_id - 1].used = true;
-            const sampling_factor: u8 = buffer[index.* + 1];
-            index.* += 1;
+            self._color_components[component_id - 1].used_in_frame = true;
+            const sampling_factor: u8 = bit_reader.read_byte();
             self._color_components[component_id - 1].horizontal_sampling_factor = sampling_factor >> 4;
             self._color_components[component_id - 1].vertical_sampling_factor = sampling_factor & 0x0F;
-            self._color_components[component_id - 1].quantization_table_id = buffer[index.* + 1];
-            index.* += 1;
+            self._color_components[component_id - 1].quantization_table_id = bit_reader.read_byte();
             if (component_id == 1) {
                 if ((self._color_components[component_id - 1].horizontal_sampling_factor != 1 and self._color_components[component_id - 1].horizontal_sampling_factor != 2) or
                     (self._color_components[component_id - 1].vertical_sampling_factor != 1 and self._color_components[component_id - 1].vertical_sampling_factor != 2))
                 {
                     return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
                 }
-                if (self._color_components[component_id - 1].horizontal_sampling_factor == 2 and self.mcu_width % 2 == 1) {
-                    self.mcu_width_real += 1;
+                if (self._color_components[component_id - 1].horizontal_sampling_factor == 2 and self.block_width % 2 == 1) {
+                    self.block_width_real += 1;
                     std.debug.print("incrementing real\n", .{});
                 }
-                if (self._color_components[component_id - 1].vertical_sampling_factor == 2 and self.mcu_height % 2 == 1) {
-                    self.mcu_height_real += 1;
+                if (self._color_components[component_id - 1].vertical_sampling_factor == 2 and self.block_height % 2 == 1) {
+                    self.block_height_real += 1;
                     std.debug.print("incrementing real\n", .{});
                 }
             } else {
@@ -352,14 +418,12 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_HEADER;
         }
     }
-    fn _read_quant_table(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
-        var length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+    fn _read_quant_table(self: *Image, bit_reader: *BitReader) JPEG_ERRORS!void {
+        var length: i16 = bit_reader.read_word();
         length -= 2;
-        index.* += 2;
         while (length > 0) {
             std.debug.print("Reading a Quant table\n", .{});
-            const table_info = buffer[index.* + 1];
-            index.* += 1;
+            const table_info = bit_reader.read_byte();
             length -= 1;
             const table_id = table_info & 0x0F;
 
@@ -370,15 +434,13 @@ const Image = struct {
             if (table_info >> 4 != 0) {
                 // 16 bit values
                 for (0..64) |i| {
-                    self._quantization_tables[table_id].table[zig_zag_map[i]] = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-                    index.* += 2;
+                    self._quantization_tables[table_id].table[zig_zag_map[i]] = bit_reader.read_word();
                 }
                 length -= 128;
             } else {
                 // 8 bit values
                 for (0..64) |i| {
-                    self._quantization_tables[table_id].table[zig_zag_map[i]] = buffer[index.* + 1];
-                    index.* += 1;
+                    self._quantization_tables[table_id].table[zig_zag_map[i]] = bit_reader.read_byte();
                 }
                 length -= 64;
             }
@@ -387,33 +449,30 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_DQT;
         }
     }
-    fn _read_restart_interval(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_restart_interval(self: *Image, bit_reader: *BitReader) JPEG_ERRORS!void {
         std.debug.print("Reading DRI marker\n", .{});
-        const length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
-        self._restart_interval = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
+        const length: i16 = bit_reader.read_word();
+        self._restart_interval = bit_reader.read_word();
         if (length - 4 != 0) {
             return JPEG_ERRORS.INVALID_RESTART_MARKER;
         }
         std.debug.print("Restart interval {d}\n", .{self._restart_interval});
     }
-    fn _read_start_of_scan(self: *Image, buffer: []u8, index: *u32, allocator: *std.mem.Allocator) JPEG_ERRORS!void {
+    fn _read_start_of_scan(self: *Image, bit_reader: *BitReader) JPEG_ERRORS!void {
         std.debug.print("Reading SOS marker\n", .{});
-        self._huffman_data = std.ArrayList(u8).init(allocator.*);
         if (self._num_components == 0) {
             return JPEG_ERRORS.INVALID_HEADER;
         }
-        const length: u16 = (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
+        const length: u16 = bit_reader.read_word();
         for (0..self._num_components) |i| {
-            self._color_components[i].used = false;
+            self._color_components[i].used_in_scan = false;
         }
-        const num_components = buffer[index.* + 1];
-        index.* += 1;
-        for (0..num_components) |_| {
-            var component_id = buffer[index.* + 1];
-            index.* += 1;
+        self._components_in_scan = bit_reader.read_byte();
+        if (self._components_in_scan == 0) {
+            return JPEG_ERRORS.INVALID_COMPONENT_LENGTH;
+        }
+        for (0..self._components_in_scan) |_| {
+            var component_id = bit_reader.read_byte();
             if (self._zero_based) {
                 component_id += 1;
             }
@@ -421,24 +480,23 @@ const Image = struct {
                 return JPEG_ERRORS.INVALID_COMPONENT_ID;
             }
             var color_component: *ColorComponent = &self._color_components[component_id - 1];
-            if (color_component.used) {
+            if (!color_component.used_in_frame) {
+                return JPEG_ERRORS.INVALID_COMPONENT_ID;
+            }
+            if (color_component.used_in_scan) {
                 return JPEG_ERRORS.DUPLICATE_COLOR_COMPONENT_ID;
             }
-            color_component.used = true;
-            const huffman_table_ids = buffer[index.* + 1];
-            index.* += 1;
+            color_component.used_in_scan = true;
+            const huffman_table_ids = bit_reader.read_byte();
             color_component.huffman_dct_table_id = huffman_table_ids >> 4;
             color_component.huffman_act_table_id = huffman_table_ids & 0x0F;
             if (color_component.huffman_act_table_id == 3 or color_component.huffman_dct_table_id == 3) {
                 return JPEG_ERRORS.INVALID_HUFFMAN_ID;
             }
         }
-        self._start_of_selection = buffer[index.* + 1];
-        index.* += 1;
-        self._end_of_selection = buffer[index.* + 1];
-        index.* += 1;
-        const succ_approx = buffer[index.* + 1];
-        index.* += 1;
+        self._start_of_selection = bit_reader.read_byte();
+        self._end_of_selection = bit_reader.read_byte();
+        const succ_approx = bit_reader.read_byte();
         self._succcessive_approximation_high = succ_approx >> 4;
         self._succcessive_approximation_low = succ_approx & 0x0F;
 
@@ -450,18 +508,16 @@ const Image = struct {
             return JPEG_ERRORS.INVALID_SUCCESSIVE_APPROXIMATION;
         }
 
-        if (length - 6 - (2 * num_components) != 0) {
+        if (length - 6 - (2 * self._components_in_scan) != 0) {
             return JPEG_ERRORS.INVALID_SOS;
         }
     }
-    fn _read_huffman(self: *Image, buffer: []u8, index: *u32) JPEG_ERRORS!void {
+    fn _read_huffman(self: *Image, bit_reader: *BitReader) JPEG_ERRORS!void {
         std.debug.print("Reading DHT marker\n", .{});
-        var length: i16 = (@as(i16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
-        index.* += 2;
+        var length: i16 = bit_reader.read_word();
         length -= 2;
         while (length > 0) {
-            const table_info: u8 = buffer[index.* + 1];
-            index.* += 1;
+            const table_info: u8 = bit_reader.read_byte();
             const table_id = table_info & 0x0F;
             const act_table: bool = (table_info >> 4) != 0;
 
@@ -478,76 +534,67 @@ const Image = struct {
             huff_table.offsets[0] = 0;
             var all_symbols: u8 = 0;
             for (1..17) |i| {
-                all_symbols += buffer[index.* + 1];
-                index.* += 1;
+                all_symbols += bit_reader.read_byte();
                 huff_table.offsets[i] = all_symbols;
             }
             if (all_symbols > 176) {
                 return JPEG_ERRORS.TOO_MANY_HUFFMAN_SYMBOLS;
             }
             for (0..all_symbols) |j| {
-                huff_table.symbols[j] = buffer[index.* + 1];
-                index.* += 1;
+                huff_table.symbols[j] = bit_reader.read_byte();
             }
+            self._generate_huffman_codes(huff_table);
             length -= 17 + all_symbols;
         }
         if (length != 0) {
             return JPEG_ERRORS.INVALID_HUFFMAN_LENGTH;
         }
     }
-    fn _skippable_header(_: *Image, buffer: []u8, index: *u32) void {
-        index.* += (@as(u16, buffer[index.* + 1]) << 8) + buffer[index.* + 2];
+    fn _skippable_header(_: *Image, bit_reader: *BitReader) void {
+        _ = bit_reader.read_word();
     }
-    fn _read_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        const image_file = try std.fs.cwd().openFile(file_name, .{});
-        defer image_file.close();
-        const size_limit = std.math.maxInt(u32);
-        const buffer = try image_file.readToEndAlloc(allocator.*, size_limit);
-        defer allocator.free(buffer);
-        var current: u8 = buffer[1];
-        var last: u8 = buffer[0];
-
+    fn _read_headers(self: *Image, bit_reader: *BitReader) !void {
+        var last: u8 = try bit_reader.read_byte();
+        var current: u8 = try bit_reader.read_byte();
         if (last == @intFromEnum(JPEG_HEADERS.HEADER) and current == @intFromEnum(JPEG_HEADERS.SOI)) {
             std.debug.print("Start of image\n", .{});
         } else {
             return JPEG_ERRORS.INVALID_HEADER;
         }
-        last = buffer[2];
-        current = buffer[3];
-        var i: u32 = 3;
-        while (i < buffer.len) {
+        last = try bit_reader.read_byte();
+        current = try bit_reader.read_byte();
+        while (bit_reader.has_bits()) {
             // Expecting header
             std.debug.print("Reading header {x} {x}\n", .{ last, current });
             if (last == @intFromEnum(JPEG_HEADERS.HEADER)) {
                 if (current <= @intFromEnum(JPEG_HEADERS.APP15) and current >= @intFromEnum(JPEG_HEADERS.APP0)) {
                     std.debug.print("Application header {x} {x}\n", .{ last, current });
-                    self._skippable_header(buffer, &i);
+                    self._skippable_header(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.COM)) {
                     // comment
-                    self._skippable_header(buffer, &i);
+                    self._skippable_header(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.DQT)) {
                     std.debug.print("Reading Quant table\n", .{});
-                    try self._read_quant_table(buffer, &i);
+                    try self._read_quant_table(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.DRI)) {
-                    try self._read_restart_interval(buffer, &i);
+                    try self._read_restart_interval(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.SOS)) {
-                    try self._read_start_of_scan(buffer, &i, allocator);
                     break;
                 } else if (current == @intFromEnum(JPEG_HEADERS.DHT)) {
-                    try self._read_huffman(buffer, &i);
+                    try self._read_huffman(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
                     std.debug.print("End of image\n", .{});
                     return JPEG_ERRORS.INVALID_EOI;
                 } else if (current == @intFromEnum(JPEG_HEADERS.SOF0)) {
                     self._frame_type = JPEG_HEADERS.SOF0;
-                    try self._read_start_of_frame(buffer, &i);
+                    try self._read_start_of_frame(bit_reader);
                 } else if ((current >= @intFromEnum(JPEG_HEADERS.JPG0) and current <= @intFromEnum(JPEG_HEADERS.JPG13)) or
                     current == @intFromEnum(JPEG_HEADERS.DNL) or
                     current == @intFromEnum(JPEG_HEADERS.DHP) or
                     current == @intFromEnum(JPEG_HEADERS.EXP))
                 {
                     // unusued that can be skipped
-                    self._skippable_header(buffer, &i);
+                    self._skippable_header(bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.DAC)) {
                     return JPEG_ERRORS.INVALID_ARITHMETIC_CODING;
                 } else if (current >= @intFromEnum(JPEG_HEADERS.SOF1) and current <= @intFromEnum(JPEG_HEADERS.SOF15)) {
@@ -557,66 +604,46 @@ const Image = struct {
                 } else if (current == @intFromEnum(JPEG_HEADERS.TEM)) {} else if (current == @intFromEnum(JPEG_HEADERS.HEADER)) {
                     // allowed to have run of 0xFF
                     last = current;
-                    i += 1;
-                    current = buffer[i];
+                    current = bit_reader.read_byte();
                     continue;
                 } else {
                     return JPEG_ERRORS.INVALID_HEADER;
                 }
                 // handled valid header move to next
-                last = buffer[i + 1];
-                current = buffer[i + 2];
-                i += 2;
+                last = bit_reader.read_byte();
+                current = bit_reader.read_byte();
             } else {
                 //expected header
                 return JPEG_ERRORS.INVALID_HEADER;
             }
         }
-        current = buffer[i + 1];
-        i += 1;
-        while (i < buffer.len) {
-            last = current;
-            current = buffer[i + 1];
-            i += 1;
-            if (last == @intFromEnum(JPEG_HEADERS.HEADER)) {
-                // might be a marker
-                if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
-                    break;
-                } else if (current == 0) {
-                    try self._huffman_data.?.append(last);
-                    current = buffer[i + 1];
-                    i += 1;
-                } else if (current >= @intFromEnum(JPEG_HEADERS.RST0) and current <= @intFromEnum(JPEG_HEADERS.RST7)) {
-                    current = buffer[i + 1];
-                    i += 1;
-                } else if (current == @intFromEnum(JPEG_HEADERS.HEADER)) {
-                    continue;
-                } else {
-                    return JPEG_ERRORS.INVALID_MARKER;
-                }
-            } else {
-                try self._huffman_data.?.append(last);
-            }
+    }
+    fn _read_scans(self: *Image, bit_reader: *BitReader) !void {
+        self._read_start_of_scan(bit_reader);
+        try self._decode_huffman_data(bit_reader);
+    }
+    fn _read_JPEG(self: *Image, bit_reader: *BitReader, allocator: *std.mem.Allocator) !void {
+        self._read_headers(bit_reader);
+        self._blocks = try allocator.alloc(Block, self.block_height_real * self.block_width_real);
+        for (self._blocks) |*block| {
+            block.*.init();
         }
-        if (self._num_components != 1 and self._num_components != 3) {
-            return JPEG_ERRORS.INVALID_COMPONENT_LENGTH;
+        for (&self._huffman_dct_tables) |*table| {
+            if (table.*.set) {
+                self._generate_huffman_codes(table);
+            }
         }
 
-        for (0..self._num_components) |j| {
-            if (self._quantization_tables[self._color_components[j].quantization_table_id].set == false) {
-                return JPEG_ERRORS.UNINITIALIZED_TABLE;
-            }
-            if (self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id].set == false) {
-                return JPEG_ERRORS.UNINITIALIZED_TABLE;
-            }
-            if (self._huffman_act_tables[self._color_components[j].huffman_act_table_id].set == false) {
-                return JPEG_ERRORS.UNINITIALIZED_TABLE;
+        for (&self._huffman_act_tables) |*table| {
+            if (table.*.set) {
+                self._generate_huffman_codes(table);
             }
         }
+        self._read_scans(bit_reader);
+        try self._decode_huffman_data(bit_reader);
     }
     pub fn clean_up(self: *Image) void {
         std.ArrayList(Pixel).deinit(self.data.?);
-        std.ArrayList(u8).deinit(self._huffman_data.?);
     }
     pub fn print(self: *Image) void {
         std.debug.print("Quant Tables:\n", .{});
@@ -639,7 +666,6 @@ const Image = struct {
         //     }
         //     std.debug.print("\n", .{});
         // }
-        std.debug.print("Huffman data length: {d}\n", .{self._huffman_data.?.items.len});
     }
     fn _generate_huffman_codes(_: *Image, h_table: *HuffmanTable) void {
         var code: u32 = 0;
@@ -651,32 +677,16 @@ const Image = struct {
             code <<= 1;
         }
     }
-    fn _decode_huffman_data(self: *Image, allocator: *std.mem.Allocator) (error{OutOfMemory} || JPEG_ERRORS || BITREADER_ERRORS)![]MCU {
-        std.debug.print("{d} {d} real {d} {d}\n", .{ self.mcu_width, self.mcu_height, self.mcu_width_real, self.mcu_height_real });
-        const mcus: []MCU = try allocator.alloc(MCU, self.mcu_height_real * self.mcu_width_real);
-        for (mcus) |*mcu| {
-            mcu.*.init();
-        }
-        for (&self._huffman_dct_tables) |*table| {
-            if (table.*.set) {
-                self._generate_huffman_codes(table);
-            }
-        }
+    fn _decode_huffman_data(self: *Image, bit_reader: *BitReader) (error{OutOfMemory} || JPEG_ERRORS || BITREADER_ERRORS)!void {
+        std.debug.print("{d} {d} real {d} {d}\n", .{ self.block_width, self.block_height, self.block_width_real, self.block_height_real });
 
-        for (&self._huffman_act_tables) |*table| {
-            if (table.*.set) {
-                self._generate_huffman_codes(table);
-            }
-        }
-
-        var bit_reader: BitReader = BitReader{ .data = &self._huffman_data.? };
         var previous_dcs: [3]i32 = [_]i32{0} ** 3;
         var y: usize = 0;
         var x: usize = 0;
         const restart_interval: u32 = self._restart_interval * self.horizontal_sampling_factor * self.vertical_sampling_factor;
-        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
-            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
-                if (restart_interval != 0 and (y * self.mcu_width_real + x) % restart_interval == 0) {
+        while (y < self.block_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.block_width) : (x += self.horizontal_sampling_factor) {
+                if (restart_interval != 0 and (y * self.block_width_real + x) % restart_interval == 0) {
                     previous_dcs[0] = 0;
                     previous_dcs[1] = 0;
                     previous_dcs[2] = 0;
@@ -685,15 +695,13 @@ const Image = struct {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
                         for (0..self._color_components[j].horizontal_sampling_factor) |h| {
-                            try _decode_MCU_component(self, &bit_reader, mcus[(y + v) * self.mcu_width_real + (x + h)].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+                            try _decode_block_component(self, bit_reader, self._blocks[(y + v) * self.block_width_real + (x + h)].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
                         }
                     }
                 }
             }
             x = 0;
         }
-
-        return mcus;
     }
     fn _get_next_symbol(_: *Image, bit_reader: *BitReader, h_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS)!u8 {
         var current_code: i32 = 0;
@@ -708,7 +716,7 @@ const Image = struct {
         }
         return JPEG_ERRORS.HUFFMAN_DECODING;
     }
-    fn _decode_MCU_component(self: *Image, bit_reader: *BitReader, color_channel: []i32, previous_dc: *i32, dct_table: *HuffmanTable, act_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS)!void {
+    fn _decode_block_component(self: *Image, bit_reader: *BitReader, color_channel: []i32, previous_dc: *i32, dct_table: *HuffmanTable, act_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS)!void {
         const length: u8 = try _get_next_symbol(self, bit_reader, dct_table);
         if (length > 11) {
             return JPEG_ERRORS.HUFFMAN_DECODING;
@@ -760,17 +768,17 @@ const Image = struct {
             }
         }
     }
-    fn _de_quant_data(self: *Image, mcus: []MCU) !void {
+    fn _de_quant_data(self: *Image) !void {
         var y: usize = 0;
         var x: usize = 0;
         std.debug.print("sampling factor {d} {d}\n", .{ self.vertical_sampling_factor, self.horizontal_sampling_factor });
-        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
-            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+        while (y < self.block_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.block_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
                         for (0..self._color_components[j].horizontal_sampling_factor) |h| {
                             for (0..64) |k| {
-                                mcus[(y + v) * self.mcu_width_real + (x + h)].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
+                                self._blocks[(y + v) * self.block_width_real + (x + h)].get(j)[k] *= self._quantization_tables[self._color_components[j].quantization_table_id].table[k];
                             }
                         }
                     }
@@ -780,16 +788,16 @@ const Image = struct {
         }
     }
     // inverse dct based on AAN
-    fn _inverse_dct_component(_: *Image, mcu: *[64]i32) void {
+    fn _inverse_dct_component(_: *Image, block: *[64]i32) void {
         for (0..8) |i| {
-            const g0: f32 = @as(f32, @floatFromInt(mcu[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
-            const g1: f32 = @as(f32, @floatFromInt(mcu[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
-            const g2: f32 = @as(f32, @floatFromInt(mcu[2 * 8 + i])) * IDCT_SCALING_FACTORS.s2;
-            const g3: f32 = @as(f32, @floatFromInt(mcu[6 * 8 + i])) * IDCT_SCALING_FACTORS.s6;
-            const g4: f32 = @as(f32, @floatFromInt(mcu[5 * 8 + i])) * IDCT_SCALING_FACTORS.s5;
-            const g5: f32 = @as(f32, @floatFromInt(mcu[1 * 8 + i])) * IDCT_SCALING_FACTORS.s1;
-            const g6: f32 = @as(f32, @floatFromInt(mcu[7 * 8 + i])) * IDCT_SCALING_FACTORS.s7;
-            const g7: f32 = @as(f32, @floatFromInt(mcu[3 * 8 + i])) * IDCT_SCALING_FACTORS.s3;
+            const g0: f32 = @as(f32, @floatFromInt(block[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
+            const g1: f32 = @as(f32, @floatFromInt(block[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
+            const g2: f32 = @as(f32, @floatFromInt(block[2 * 8 + i])) * IDCT_SCALING_FACTORS.s2;
+            const g3: f32 = @as(f32, @floatFromInt(block[6 * 8 + i])) * IDCT_SCALING_FACTORS.s6;
+            const g4: f32 = @as(f32, @floatFromInt(block[5 * 8 + i])) * IDCT_SCALING_FACTORS.s5;
+            const g5: f32 = @as(f32, @floatFromInt(block[1 * 8 + i])) * IDCT_SCALING_FACTORS.s1;
+            const g6: f32 = @as(f32, @floatFromInt(block[7 * 8 + i])) * IDCT_SCALING_FACTORS.s7;
+            const g7: f32 = @as(f32, @floatFromInt(block[3 * 8 + i])) * IDCT_SCALING_FACTORS.s3;
 
             const f0: f32 = g0;
             const f1: f32 = g1;
@@ -839,25 +847,25 @@ const Image = struct {
             const b6: f32 = c6 - c7;
             const b7: f32 = c7;
 
-            mcu[0 * 8 + i] = @as(i32, @intFromFloat(b0 + b7));
-            mcu[1 * 8 + i] = @as(i32, @intFromFloat(b1 + b6));
-            mcu[2 * 8 + i] = @as(i32, @intFromFloat(b2 + b5));
-            mcu[3 * 8 + i] = @as(i32, @intFromFloat(b3 + b4));
-            mcu[4 * 8 + i] = @as(i32, @intFromFloat(b3 - b4));
-            mcu[5 * 8 + i] = @as(i32, @intFromFloat(b2 - b5));
-            mcu[6 * 8 + i] = @as(i32, @intFromFloat(b1 - b6));
-            mcu[7 * 8 + i] = @as(i32, @intFromFloat(b0 - b7));
+            block[0 * 8 + i] = @as(i32, @intFromFloat(b0 + b7));
+            block[1 * 8 + i] = @as(i32, @intFromFloat(b1 + b6));
+            block[2 * 8 + i] = @as(i32, @intFromFloat(b2 + b5));
+            block[3 * 8 + i] = @as(i32, @intFromFloat(b3 + b4));
+            block[4 * 8 + i] = @as(i32, @intFromFloat(b3 - b4));
+            block[5 * 8 + i] = @as(i32, @intFromFloat(b2 - b5));
+            block[6 * 8 + i] = @as(i32, @intFromFloat(b1 - b6));
+            block[7 * 8 + i] = @as(i32, @intFromFloat(b0 - b7));
         }
 
         for (0..8) |i| {
-            const g0: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 0])) * IDCT_SCALING_FACTORS.s0;
-            const g1: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 4])) * IDCT_SCALING_FACTORS.s4;
-            const g2: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 2])) * IDCT_SCALING_FACTORS.s2;
-            const g3: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 6])) * IDCT_SCALING_FACTORS.s6;
-            const g4: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 5])) * IDCT_SCALING_FACTORS.s5;
-            const g5: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 1])) * IDCT_SCALING_FACTORS.s1;
-            const g6: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 7])) * IDCT_SCALING_FACTORS.s7;
-            const g7: f32 = @as(f32, @floatFromInt(mcu[i * 8 + 3])) * IDCT_SCALING_FACTORS.s3;
+            const g0: f32 = @as(f32, @floatFromInt(block[i * 8 + 0])) * IDCT_SCALING_FACTORS.s0;
+            const g1: f32 = @as(f32, @floatFromInt(block[i * 8 + 4])) * IDCT_SCALING_FACTORS.s4;
+            const g2: f32 = @as(f32, @floatFromInt(block[i * 8 + 2])) * IDCT_SCALING_FACTORS.s2;
+            const g3: f32 = @as(f32, @floatFromInt(block[i * 8 + 6])) * IDCT_SCALING_FACTORS.s6;
+            const g4: f32 = @as(f32, @floatFromInt(block[i * 8 + 5])) * IDCT_SCALING_FACTORS.s5;
+            const g5: f32 = @as(f32, @floatFromInt(block[i * 8 + 1])) * IDCT_SCALING_FACTORS.s1;
+            const g6: f32 = @as(f32, @floatFromInt(block[i * 8 + 7])) * IDCT_SCALING_FACTORS.s7;
+            const g7: f32 = @as(f32, @floatFromInt(block[i * 8 + 3])) * IDCT_SCALING_FACTORS.s3;
 
             const f0: f32 = g0;
             const f1: f32 = g1;
@@ -907,25 +915,25 @@ const Image = struct {
             const b6: f32 = c6 - c7;
             const b7: f32 = c7;
 
-            mcu[i * 8 + 0] = @as(i32, @intFromFloat(b0 + b7 + 0.5));
-            mcu[i * 8 + 1] = @as(i32, @intFromFloat(b1 + b6 + 0.5));
-            mcu[i * 8 + 2] = @as(i32, @intFromFloat(b2 + b5 + 0.5));
-            mcu[i * 8 + 3] = @as(i32, @intFromFloat(b3 + b4 + 0.5));
-            mcu[i * 8 + 4] = @as(i32, @intFromFloat(b3 - b4 + 0.5));
-            mcu[i * 8 + 5] = @as(i32, @intFromFloat(b2 - b5 + 0.5));
-            mcu[i * 8 + 6] = @as(i32, @intFromFloat(b1 - b6 + 0.5));
-            mcu[i * 8 + 7] = @as(i32, @intFromFloat(b0 - b7 + 0.5));
+            block[i * 8 + 0] = @as(i32, @intFromFloat(b0 + b7 + 0.5));
+            block[i * 8 + 1] = @as(i32, @intFromFloat(b1 + b6 + 0.5));
+            block[i * 8 + 2] = @as(i32, @intFromFloat(b2 + b5 + 0.5));
+            block[i * 8 + 3] = @as(i32, @intFromFloat(b3 + b4 + 0.5));
+            block[i * 8 + 4] = @as(i32, @intFromFloat(b3 - b4 + 0.5));
+            block[i * 8 + 5] = @as(i32, @intFromFloat(b2 - b5 + 0.5));
+            block[i * 8 + 6] = @as(i32, @intFromFloat(b1 - b6 + 0.5));
+            block[i * 8 + 7] = @as(i32, @intFromFloat(b0 - b7 + 0.5));
         }
     }
-    fn _inverse_dct(self: *Image, mcus: []MCU) void {
+    fn _inverse_dct(self: *Image) void {
         var y: usize = 0;
         var x: usize = 0;
-        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
-            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
+        while (y < self.block_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.block_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
                         for (0..self._color_components[j].horizontal_sampling_factor) |h| {
-                            self._inverse_dct_component(mcus[(y + v) * self.mcu_width_real + (x + h)].get(j));
+                            self._inverse_dct_component(self._blocks[(y + v) * self.block_width_real + (x + h)].get(j));
                         }
                     }
                 }
@@ -933,7 +941,7 @@ const Image = struct {
             x = 0;
         }
     }
-    fn _ycb_rgb_mcu(self: *Image, mcu: *MCU, cbcr: *MCU, v: usize, h: usize) void {
+    fn _ycb_rgb_block(self: *Image, block: *Block, cbcr: *Block, v: usize, h: usize) void {
         var y: usize = 7;
         var x: usize = 7;
         while (y >= 0) : (y -= 1) {
@@ -942,9 +950,9 @@ const Image = struct {
                 const cbcr_pixel_row: usize = y / self.vertical_sampling_factor + 4 * v;
                 const cbcr_pixel_col: usize = x / self.horizontal_sampling_factor + 4 * h;
                 const cbcr_pixel = cbcr_pixel_row * 8 + cbcr_pixel_col;
-                var r: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) + 1.402 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
-                var g: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) - 0.344 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
-                var b: f32 = @as(f32, @floatFromInt(mcu.y[pixel])) + 1.722 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) + 128.0;
+                var r: f32 = @as(f32, @floatFromInt(block.y[pixel])) + 1.402 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var g: f32 = @as(f32, @floatFromInt(block.y[pixel])) - 0.344 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var b: f32 = @as(f32, @floatFromInt(block.y[pixel])) + 1.722 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) + 128.0;
                 if (r < 0) {
                     r = 0;
                 }
@@ -963,27 +971,27 @@ const Image = struct {
                 if (b > 255) {
                     b = 255;
                 }
-                mcu.r[pixel] = @as(i32, @intFromFloat(r));
-                mcu.g[pixel] = @as(i32, @intFromFloat(g));
-                mcu.b[pixel] = @as(i32, @intFromFloat(b));
+                block.r[pixel] = @as(i32, @intFromFloat(r));
+                block.g[pixel] = @as(i32, @intFromFloat(g));
+                block.b[pixel] = @as(i32, @intFromFloat(b));
                 if (x == 0) break;
             }
             x = 7;
             if (y == 0) break;
         }
     }
-    fn _ycb_rgb(self: *Image, mcus: []MCU) void {
+    fn _ycb_rgb(self: *Image) void {
         var y: usize = 0;
         var x: usize = 0;
-        while (y < self.mcu_height) : (y += self.vertical_sampling_factor) {
-            while (x < self.mcu_width) : (x += self.horizontal_sampling_factor) {
-                const cbcr: *MCU = &mcus[y * self.mcu_width_real + x];
+        while (y < self.block_height) : (y += self.vertical_sampling_factor) {
+            while (x < self.block_width) : (x += self.horizontal_sampling_factor) {
+                const cbcr: *Block = &self._blocks[y * self.block_width_real + x];
                 var v: usize = self.vertical_sampling_factor - 1;
                 var h: usize = self.horizontal_sampling_factor - 1;
                 while (v < self.vertical_sampling_factor) : (v -= 1) {
                     while (h < self.horizontal_sampling_factor) : (h -= 1) {
-                        const mcu: *MCU = &mcus[(y + v) * self.mcu_width_real + (x + h)];
-                        self._ycb_rgb_mcu(mcu, cbcr, v, h);
+                        const block: *Block = &self._blocks[(y + v) * self.block_width_real + (x + h)];
+                        self._ycb_rgb_block(block, cbcr, v, h);
                         if (h == 0) break;
                     }
                     if (v == 0) break;
@@ -994,29 +1002,28 @@ const Image = struct {
     }
     fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
         self.data = std.ArrayList(Pixel).init(allocator.*);
-        const mcus: []MCU = try self._decode_huffman_data(allocator);
-        defer allocator.free(mcus);
-        try self._de_quant_data(mcus);
-        self._inverse_dct(mcus);
-        self._ycb_rgb(mcus);
+        defer allocator.free(self._blocks);
+        try self._de_quant_data();
+        self._inverse_dct();
+        self._ycb_rgb();
 
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = self.height;
         while (i >= 0) {
             i -= 1;
-            const mcu_row: u32 = @as(u32, @intCast(i)) / 8;
+            const block_row: u32 = @as(u32, @intCast(i)) / 8;
             const pixel_row: u32 = @as(u32, @intCast(i)) % 8;
             for (0..self.width) |j| {
-                const mcu_col: u32 = @as(u32, @intCast(j)) / 8;
+                const block_col: u32 = @as(u32, @intCast(j)) / 8;
                 const pixel_col: u32 = @as(u32, @intCast(j)) % 8;
-                const mcu_index = mcu_row * self.mcu_width_real + mcu_col;
-                //std.debug.print("writing index {d}\n", .{mcu_index});
+                const block_index = block_row * self.block_width_real + block_col;
+                //std.debug.print("writing index {d}\n", .{block_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
-                //std.debug.print("pixel ({d}) ({d}) ({d})\n", .{ mcus[mcu_index].r[pixel_index], mcus[mcu_index].g[pixel_index], mcus[mcu_index].b[pixel_index] });
+                //std.debug.print("pixel ({d}) ({d}) ({d})\n", .{ blocks[block_index].r[pixel_index], blocks[block_index].g[pixel_index], blocks[block_index].b[pixel_index] });
                 try self.data.?.append(Pixel{
-                    .r = @truncate(@as(u32, @bitCast(mcus[mcu_index].r[pixel_index]))),
-                    .g = @truncate(@as(u32, @bitCast(mcus[mcu_index].g[pixel_index]))),
-                    .b = @truncate(@as(u32, @bitCast(mcus[mcu_index].b[pixel_index]))),
+                    .r = @truncate(@as(u32, @bitCast(self._blocks[block_index].r[pixel_index]))),
+                    .g = @truncate(@as(u32, @bitCast(self._blocks[block_index].g[pixel_index]))),
+                    .b = @truncate(@as(u32, @bitCast(self._blocks[block_index].b[pixel_index]))),
                 });
             }
             if (i == 0) break;
@@ -1077,10 +1084,13 @@ const Image = struct {
         }
     }
     pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        try self._read_JPEG(file_name, allocator);
+        var bit_reader: BitReader = BitReader{};
+        try bit_reader.init(file_name, allocator);
+        try self._read_JPEG(&bit_reader, allocator);
         //self.print();
         try self._gen_rgb_data(allocator);
         self._loaded = true;
+        bit_reader.clean_up();
     }
 };
 
@@ -1145,9 +1155,9 @@ test "FISH2_1" {
     }
 }
 
-// test "MCU" {
-//     var mcu = MCU{};
-//     mcu.init();
-//     mcu.r[1] = 5;
-//     try std.testing.expect(mcu.r[1] == 5 and mcu.y[1] == 5);
+// test "block" {
+//     var block = block{};
+//     block.init();
+//     block.r[1] = 5;
+//     try std.testing.expect(block.r[1] == 5 and block.y[1] == 5);
 // }
