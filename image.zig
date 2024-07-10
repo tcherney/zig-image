@@ -1,4 +1,4 @@
-//https://yasoob.me/posts/understanding-and-writing-jpeg-decoder-in-python/#jpeg-decoding
+//https://yasoob.me/posts/understanding-and-writing-jpeg-decoder-in-python/#jpeg-decodinghttps://www.twitch.tv/
 //https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4
 //https://youtu.be/26f9MU9dYw8?list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&t=2466
 const std = @import("std");
@@ -291,10 +291,7 @@ const BitReader = struct {
             }
         }
         const bit: u32 = (self.next_byte >> @as(u5, @intCast(7 - self.next_bit))) & 1;
-        self.next_bit += 1;
-        if (self.next_bit == 8) {
-            self.next_bit = 0;
-        }
+        self.next_bit = (self.next_bit + 1) % 8;
         return bit;
     }
     pub fn read_bits(self: *BitReader, length: u32) (BITREADER_ERRORS || BYTEFILESTREAM_ERRORS)!u32 {
@@ -388,9 +385,11 @@ const Image = struct {
 
             self._color_components[component_id - 1].used_in_frame = true;
             const sampling_factor: u8 = try bit_reader.read_byte();
+            std.debug.print("sampling factor {x}\n", .{sampling_factor});
             self._color_components[component_id - 1].horizontal_sampling_factor = sampling_factor >> 4;
             self._color_components[component_id - 1].vertical_sampling_factor = sampling_factor & 0x0F;
             self._color_components[component_id - 1].quantization_table_id = try bit_reader.read_byte();
+            std.debug.print("sampling factor vert {d} horizontal {d}\n", .{ self._color_components[component_id - 1].vertical_sampling_factor, self._color_components[component_id - 1].horizontal_sampling_factor });
             if (component_id == 1) {
                 if ((self._color_components[component_id - 1].horizontal_sampling_factor != 1 and self._color_components[component_id - 1].horizontal_sampling_factor != 2) or
                     (self._color_components[component_id - 1].vertical_sampling_factor != 1 and self._color_components[component_id - 1].vertical_sampling_factor != 2))
@@ -405,6 +404,8 @@ const Image = struct {
                     self._block_height_real += 1;
                     std.debug.print("incrementing real\n", .{});
                 }
+                self.horizontal_sampling_factor = self._color_components[component_id - 1].horizontal_sampling_factor;
+                self.vertical_sampling_factor = self._color_components[component_id - 1].vertical_sampling_factor;
             } else {
                 if (self._color_components[component_id - 1].horizontal_sampling_factor != 1 or self._color_components[component_id - 1].vertical_sampling_factor != 1) {
                     return JPEG_ERRORS.INVALID_SAMPLING_FACTOR;
@@ -631,6 +632,7 @@ const Image = struct {
     }
     fn _read_scans(self: *Image, bit_reader: *BitReader) !void {
         try self._read_start_of_scan(bit_reader);
+        std.debug.print("next header {x} {x}\n", .{ bit_reader._byte_stream._buffer[bit_reader._byte_stream._index], bit_reader._byte_stream._buffer[bit_reader._byte_stream._index + 1] });
         //self.print();
         try self._decode_huffman_data(bit_reader);
     }
@@ -705,9 +707,11 @@ const Image = struct {
                     bit_reader.align_reader();
                 }
                 for (0..self._num_components) |j| {
-                    for (0..self._color_components[j].vertical_sampling_factor) |v| {
-                        for (0..self._color_components[j].horizontal_sampling_factor) |h| {
-                            try _decode_block_component(self, bit_reader, self._blocks[(y + v) * self._block_width_real + (x + h)].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+                    if (self._color_components[j].used_in_scan) {
+                        for (0..self._color_components[j].vertical_sampling_factor) |v| {
+                            for (0..self._color_components[j].horizontal_sampling_factor) |h| {
+                                try _decode_block_component(self, bit_reader, self._blocks[(y + v) * self._block_width_real + (x + h)].get(j), &previous_dcs[j], &self._huffman_dct_tables[self._color_components[j].huffman_dct_table_id], &self._huffman_act_tables[self._color_components[j].huffman_act_table_id]);
+                            }
                         }
                     }
                 }
@@ -718,7 +722,7 @@ const Image = struct {
     fn _get_next_symbol(_: *Image, bit_reader: *BitReader, h_table: *HuffmanTable) (JPEG_ERRORS || BITREADER_ERRORS || BYTEFILESTREAM_ERRORS)!u8 {
         var current_code: i32 = 0;
         for (0..h_table.offsets.len - 1) |i| {
-            const bit: i32 = @as(i32, @intCast(try bit_reader.read_bit()));
+            const bit: i32 = @as(i32, @bitCast(try bit_reader.read_bit()));
             current_code = (current_code << 1) | bit;
             for (h_table.offsets[i]..h_table.offsets[i + 1]) |j| {
                 if (current_code == h_table.codes[j]) {
@@ -733,7 +737,7 @@ const Image = struct {
         if (length > 11) {
             return JPEG_ERRORS.HUFFMAN_DECODING;
         }
-        var coeff: i32 = @as(i32, @intCast(try bit_reader.read_bits(length)));
+        var coeff: i32 = @as(i32, @bitCast(try bit_reader.read_bits(length)));
         if (length != 0 and coeff < (@as(i32, 1) << @as(u5, @intCast(length - 1)))) {
             coeff -= (@as(i32, 1) << @as(u5, @intCast(length))) - 1;
         }
@@ -771,7 +775,7 @@ const Image = struct {
             }
 
             if (coeff_length != 0) {
-                coeff = @as(i32, @intCast(try bit_reader.read_bits(coeff_length)));
+                coeff = @as(i32, @bitCast(try bit_reader.read_bits(coeff_length)));
                 if (coeff < (@as(i32, 1) << @as(u5, @intCast(coeff_length - 1)))) {
                     coeff -= (@as(i32, 1) << @as(u5, @intCast(coeff_length))) - 1;
                 }
@@ -1067,7 +1071,7 @@ const Image = struct {
     }
     pub fn write_BMP(self: *Image, file_name: []const u8) !void {
         if (!self._loaded) {
-            return IMAGE_ERRORS.NOT_LOADED;
+            //return IMAGE_ERRORS.NOT_LOADED;
         }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
@@ -1131,36 +1135,50 @@ test "GORILLA" {
     }
 }
 
-// test "FISH2_1V" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1V.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1V" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1V.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1H" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1H.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1H" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1H.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1" {
+test "FISH2_1" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+// test "test" {
 //     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 //     var allocator = gpa.allocator();
 //     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1.bmp");
+//     image.load_JPEG("test.jpg", &allocator) catch {
+//         try image._gen_rgb_data(&allocator);
+//     };
+//     try image.write_BMP("test.bmp");
 //     image.clean_up();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
