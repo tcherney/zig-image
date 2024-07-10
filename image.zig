@@ -312,6 +312,7 @@ const Image = struct {
     _quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
     height: u32 = 0,
     width: u32 = 0,
+    _allocator: *std.mem.Allocator = undefined,
     _frame_type: JPEG_HEADERS = JPEG_HEADERS.SOF0,
     _num_components: u8 = 0,
     _restart_interval: u16 = 0,
@@ -636,9 +637,9 @@ const Image = struct {
         //self.print();
         try self._decode_huffman_data(bit_reader);
     }
-    fn _read_JPEG(self: *Image, bit_reader: *BitReader, allocator: *std.mem.Allocator) !void {
+    fn _read_JPEG(self: *Image, bit_reader: *BitReader) !void {
         try self._read_headers(bit_reader);
-        self._blocks = try allocator.alloc(Block, self._block_height_real * self._block_width_real);
+        self._blocks = try self._allocator.alloc(Block, self._block_height_real * self._block_width_real);
         for (self._blocks) |*block| {
             block.*.init();
         }
@@ -1017,9 +1018,9 @@ const Image = struct {
             x = 0;
         }
     }
-    fn _gen_rgb_data(self: *Image, allocator: *std.mem.Allocator) !void {
-        self.data = std.ArrayList(Pixel).init(allocator.*);
-        defer allocator.free(self._blocks);
+    fn _gen_rgb_data(self: *Image) !void {
+        self.data = std.ArrayList(Pixel).init(self._allocator.*);
+        defer self._allocator.free(self._blocks);
         try self._de_quant_data();
         self._inverse_dct();
         self._ycb_rgb();
@@ -1080,6 +1081,10 @@ const Image = struct {
         try image_file.writer().writeByte('M');
         const padding_size: u32 = self.width % 4;
         const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+
+        var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
+        var buffer_pos = buffer[0..buffer.len];
+        defer self._allocator.free(buffer);
         try self._little_endian(&image_file, 4, size);
         try self._little_endian(&image_file, 4, 0);
         try self._little_endian(&image_file, 4, 0x1A);
@@ -1088,24 +1093,35 @@ const Image = struct {
         try self._little_endian(&image_file, 2, self.height);
         try self._little_endian(&image_file, 2, 1);
         try self._little_endian(&image_file, 2, 24);
-        for (0..self.height) |i| {
-            for (0..self.width) |j| {
+        var i: usize = 0;
+        var j: usize = 0;
+        while (i < self.height) {
+            while (j < self.width) {
                 const pixel: *Pixel = &self.data.?.items[i * self.width + j];
-                try image_file.writer().writeByte(pixel.b);
-                try image_file.writer().writeByte(pixel.g);
-                try image_file.writer().writeByte(pixel.r);
+                buffer_pos[0] = pixel.b;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.g;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.r;
+                buffer_pos.ptr += 1;
+                j += 1;
             }
             for (0..padding_size) |_| {
-                try image_file.writer().writeByte(0);
+                buffer_pos[0] = 0;
+                buffer_pos.ptr += 1;
             }
+            j = 0;
+            i += 1;
         }
+        try image_file.writeAll(buffer);
     }
     pub fn load_JPEG(self: *Image, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         var bit_reader: BitReader = BitReader{};
         try bit_reader.init(file_name, allocator);
-        try self._read_JPEG(&bit_reader, allocator);
+        self._allocator = allocator;
+        try self._read_JPEG(&bit_reader);
         std.debug.print("finished reading jpeg\n", .{});
-        try self._gen_rgb_data(allocator);
+        try self._gen_rgb_data();
         std.debug.print("finished processing jpeg\n", .{});
         self._loaded = true;
         bit_reader.clean_up();
