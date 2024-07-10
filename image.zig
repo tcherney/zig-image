@@ -1010,6 +1010,7 @@ const Image = struct {
                         self._ycb_rgb_block(block, cbcr, v, h);
                         if (h == 0) break;
                     }
+                    h = self.horizontal_sampling_factor - 1;
                     if (v == 0) break;
                 }
             }
@@ -1103,8 +1104,9 @@ const Image = struct {
         var bit_reader: BitReader = BitReader{};
         try bit_reader.init(file_name, allocator);
         try self._read_JPEG(&bit_reader, allocator);
-        //self.print();
+        std.debug.print("finished reading jpeg\n", .{});
         try self._gen_rgb_data(allocator);
+        std.debug.print("finished processing jpeg\n", .{});
         self._loaded = true;
         bit_reader.clean_up();
     }
@@ -1171,19 +1173,17 @@ test "FISH2_1" {
     }
 }
 
-// test "test" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     image.load_JPEG("test.jpg", &allocator) catch {
-//         try image._gen_rgb_data(&allocator);
-//     };
-//     try image.write_BMP("test.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "test" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("test.jpg", &allocator);
+    try image.write_BMP("test.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
 // test "block" {
 //     var block = block{};
