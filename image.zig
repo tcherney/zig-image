@@ -72,11 +72,12 @@ const JPEG_HEADERS = enum(u8) {
 };
 
 const IDCT_SCALING_FACTORS = struct {
-    const m0: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi);
-    const m1: f32 = 2.0 * std.math.cos(2 / 16 * 2 * std.math.pi);
-    const m5: f32 = 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
-    const m2: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi) - 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
-    const m4: f32 = 2.0 * std.math.cos(1 / 16 * 2 * std.math.pi) + 2.0 * std.math.cos(3 / 16 * 2 * std.math.pi);
+    const m0: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi);
+    const m1: f32 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
+    const m3: f32 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
+    const m5: f32 = 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
+    const m2: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) - 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
+    const m4: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) + 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
     const s0: f32 = std.math.cos(0.0 / 16.0 * std.math.pi) / std.math.sqrt(8.0);
     const s1: f32 = std.math.cos(1.0 / 16.0 * std.math.pi) / 2.0;
     const s2: f32 = std.math.cos(2.0 / 16.0 * std.math.pi) / 2.0;
@@ -1012,6 +1013,7 @@ const Image = struct {
     }
     // inverse dct based on AAN
     fn _inverse_dct_component(_: *Image, block: *[64]i32) void {
+        var intermediate: [64]f32 = [_]f32{0} ** 64;
         for (0..8) |i| {
             const g0: f32 = @as(f32, @floatFromInt(block[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
             const g1: f32 = @as(f32, @floatFromInt(block[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
@@ -1046,7 +1048,7 @@ const Image = struct {
             const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
             const d3: f32 = e3;
             const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
-            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m1;
+            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m3;
             const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
             const d7: f32 = e7;
             const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
@@ -1070,25 +1072,25 @@ const Image = struct {
             const b6: f32 = c6 - c7;
             const b7: f32 = c7;
 
-            block[0 * 8 + i] = @as(i32, @intFromFloat(b0 + b7));
-            block[1 * 8 + i] = @as(i32, @intFromFloat(b1 + b6));
-            block[2 * 8 + i] = @as(i32, @intFromFloat(b2 + b5));
-            block[3 * 8 + i] = @as(i32, @intFromFloat(b3 + b4));
-            block[4 * 8 + i] = @as(i32, @intFromFloat(b3 - b4));
-            block[5 * 8 + i] = @as(i32, @intFromFloat(b2 - b5));
-            block[6 * 8 + i] = @as(i32, @intFromFloat(b1 - b6));
-            block[7 * 8 + i] = @as(i32, @intFromFloat(b0 - b7));
+            intermediate[0 * 8 + i] = b0 + b7;
+            intermediate[1 * 8 + i] = b1 + b6;
+            intermediate[2 * 8 + i] = b2 + b5;
+            intermediate[3 * 8 + i] = b3 + b4;
+            intermediate[4 * 8 + i] = b3 - b4;
+            intermediate[5 * 8 + i] = b2 - b5;
+            intermediate[6 * 8 + i] = b1 - b6;
+            intermediate[7 * 8 + i] = b0 - b7;
         }
 
         for (0..8) |i| {
-            const g0: f32 = @as(f32, @floatFromInt(block[i * 8 + 0])) * IDCT_SCALING_FACTORS.s0;
-            const g1: f32 = @as(f32, @floatFromInt(block[i * 8 + 4])) * IDCT_SCALING_FACTORS.s4;
-            const g2: f32 = @as(f32, @floatFromInt(block[i * 8 + 2])) * IDCT_SCALING_FACTORS.s2;
-            const g3: f32 = @as(f32, @floatFromInt(block[i * 8 + 6])) * IDCT_SCALING_FACTORS.s6;
-            const g4: f32 = @as(f32, @floatFromInt(block[i * 8 + 5])) * IDCT_SCALING_FACTORS.s5;
-            const g5: f32 = @as(f32, @floatFromInt(block[i * 8 + 1])) * IDCT_SCALING_FACTORS.s1;
-            const g6: f32 = @as(f32, @floatFromInt(block[i * 8 + 7])) * IDCT_SCALING_FACTORS.s7;
-            const g7: f32 = @as(f32, @floatFromInt(block[i * 8 + 3])) * IDCT_SCALING_FACTORS.s3;
+            const g0: f32 = intermediate[i * 8 + 0] * IDCT_SCALING_FACTORS.s0;
+            const g1: f32 = intermediate[i * 8 + 4] * IDCT_SCALING_FACTORS.s4;
+            const g2: f32 = intermediate[i * 8 + 2] * IDCT_SCALING_FACTORS.s2;
+            const g3: f32 = intermediate[i * 8 + 6] * IDCT_SCALING_FACTORS.s6;
+            const g4: f32 = intermediate[i * 8 + 5] * IDCT_SCALING_FACTORS.s5;
+            const g5: f32 = intermediate[i * 8 + 1] * IDCT_SCALING_FACTORS.s1;
+            const g6: f32 = intermediate[i * 8 + 7] * IDCT_SCALING_FACTORS.s7;
+            const g7: f32 = intermediate[i * 8 + 3] * IDCT_SCALING_FACTORS.s3;
 
             const f0: f32 = g0;
             const f1: f32 = g1;
@@ -1114,7 +1116,7 @@ const Image = struct {
             const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
             const d3: f32 = e3;
             const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
-            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m1;
+            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m3;
             const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
             const d7: f32 = e7;
             const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
@@ -1170,8 +1172,8 @@ const Image = struct {
         while (y >= 0) : (y -= 1) {
             while (x >= 0) : (x -= 1) {
                 const pixel: usize = y * 8 + x;
-                const cbcr_pixel_row: usize = y / self.vertical_sampling_factor + 4 * v;
-                const cbcr_pixel_col: usize = x / self.horizontal_sampling_factor + 4 * h;
+                const cbcr_pixel_row: usize = (y / self.vertical_sampling_factor) + 4 * v;
+                const cbcr_pixel_col: usize = (x / self.horizontal_sampling_factor) + 4 * h;
                 const cbcr_pixel = cbcr_pixel_row * 8 + cbcr_pixel_col;
                 var r: f32 = @as(f32, @floatFromInt(block.y[pixel])) + 1.402 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
                 var g: f32 = @as(f32, @floatFromInt(block.y[pixel])) - 0.344 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
@@ -1339,7 +1341,7 @@ test "CAT" {
     var allocator = gpa.allocator();
     var image = Image{};
     try image.load_JPEG("cat.jpg", &allocator);
-    //try image.convert_grayscale();
+    try image.convert_grayscale();
     try image.write_BMP("cat.bmp");
     image.clean_up();
     if (gpa.deinit() == .leak) {
@@ -1467,9 +1469,9 @@ test "TIGER" {
     }
 }
 
-// test "block" {
-//     var block = block{};
-//     block.init();
-//     block.r[1] = 5;
-//     try std.testing.expect(block.r[1] == 5 and block.y[1] == 5);
-// }
+test "block" {
+    var block: Block(i32) = Block(i32){};
+    block.init();
+    block.r[1] = 5;
+    try std.testing.expect(block.r[1] == 5 and block.y[1] == 5);
+}
