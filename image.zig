@@ -176,36 +176,39 @@ const ColorComponent = struct {
     used_in_scan: bool = false,
 };
 
-const Block = struct {
-    y: [64]i32 = [_]i32{0} ** 64,
-    r: []i32 = undefined,
-    cb: [64]i32 = [_]i32{0} ** 64,
-    g: []i32 = undefined,
-    cr: [64]i32 = [_]i32{0} ** 64,
-    b: []i32 = undefined,
-    pub fn init(self: *Block) void {
-        for (&self.y) |*val| {
-            val.* = 0;
+fn Block(comptime T: type) type {
+    return struct {
+        y: [64]T = [_]T{0} ** 64,
+        r: []T = undefined,
+        cb: [64]T = [_]T{0} ** 64,
+        g: []T = undefined,
+        cr: [64]T = [_]T{0} ** 64,
+        b: []T = undefined,
+        const Self = @This();
+        pub fn init(self: *Self) void {
+            for (&self.y) |*val| {
+                val.* = 0;
+            }
+            for (&self.cb) |*val| {
+                val.* = 0;
+            }
+            for (&self.cr) |*val| {
+                val.* = 0;
+            }
+            self.r = &self.y;
+            self.g = &self.cb;
+            self.b = &self.cr;
         }
-        for (&self.cb) |*val| {
-            val.* = 0;
+        pub fn get(self: *Self, index: usize) *[64]T {
+            switch (index) {
+                0 => return &self.y,
+                1 => return &self.cb,
+                2 => return &self.cr,
+                else => unreachable,
+            }
         }
-        for (&self.cr) |*val| {
-            val.* = 0;
-        }
-        self.r = &self.y;
-        self.g = &self.cb;
-        self.b = &self.cr;
-    }
-    pub fn get(self: *Block, index: usize) *[64]i32 {
-        switch (index) {
-            0 => return &self.y,
-            1 => return &self.cb,
-            2 => return &self.cr,
-            else => unreachable,
-        }
-    }
-};
+    };
+}
 
 const BITREADER_ERRORS = error{
     INVALID_READ,
@@ -335,7 +338,7 @@ const Image = struct {
     _succcessive_approximation_low: u8 = 0,
     _loaded: bool = false,
     _components_in_scan: u8 = 0,
-    _blocks: []Block = undefined,
+    _blocks: []Block(i32) = undefined,
     _block_height: u32 = 0,
     _block_width: u32 = 0,
     _block_height_real: u32 = 0,
@@ -693,7 +696,7 @@ const Image = struct {
     }
     fn _read_JPEG(self: *Image, bit_reader: *BitReader) !void {
         try self._read_headers(bit_reader);
-        self._blocks = try self._allocator.alloc(Block, self._block_height_real * self._block_width_real);
+        self._blocks = try self._allocator.alloc(Block(i32), self._block_height_real * self._block_width_real);
         for (self._blocks) |*block| {
             block.*.init();
         }
@@ -1161,7 +1164,7 @@ const Image = struct {
             x = 0;
         }
     }
-    fn _ycb_rgb_block(self: *Image, block: *Block, cbcr: *Block, v: usize, h: usize) void {
+    fn _ycb_rgb_block(self: *Image, block: *Block(i32), cbcr: *Block(i32), v: usize, h: usize) void {
         var y: usize = 7;
         var x: usize = 7;
         while (y >= 0) : (y -= 1) {
@@ -1205,12 +1208,12 @@ const Image = struct {
         var x: usize = 0;
         while (y < self._block_height) : (y += self.vertical_sampling_factor) {
             while (x < self._block_width) : (x += self.horizontal_sampling_factor) {
-                const cbcr: *Block = &self._blocks[y * self._block_width_real + x];
+                const cbcr: *Block(i32) = &self._blocks[y * self._block_width_real + x];
                 var v: usize = self.vertical_sampling_factor - 1;
                 var h: usize = self.horizontal_sampling_factor - 1;
                 while (v < self.vertical_sampling_factor) : (v -= 1) {
                     while (h < self.horizontal_sampling_factor) : (h -= 1) {
-                        const block: *Block = &self._blocks[(y + v) * self._block_width_real + (x + h)];
+                        const block: *Block(i32) = &self._blocks[(y + v) * self._block_width_real + (x + h)];
                         self._ycb_rgb_block(block, cbcr, v, h);
                         if (h == 0) break;
                     }
@@ -1331,78 +1334,78 @@ const Image = struct {
     }
 };
 
-// test "CAT" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("cat.jpg", &allocator);
-//     //try image.convert_grayscale();
-//     try image.write_BMP("cat.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "CAT" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("cat.jpg", &allocator);
+    //try image.convert_grayscale();
+    try image.write_BMP("cat.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "GORILLA" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("gorilla.jpg", &allocator);
-//     try image.write_BMP("gorilla.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "GORILLA" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("gorilla.jpg", &allocator);
+    try image.write_BMP("gorilla.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1V" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1V.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1V" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1V.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1H" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1H.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1H" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1H.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
-//     try image.write_BMP("sub/goldfish_2to1.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
+    try image.write_BMP("sub/goldfish_2to1.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "test" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = Image{};
-//     try image.load_JPEG("test.jpg", &allocator);
-//     try image.write_BMP("test.bmp");
-//     image.clean_up();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "test" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = Image{};
+    try image.load_JPEG("test.jpg", &allocator);
+    try image.write_BMP("test.bmp");
+    image.clean_up();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
 test "PARROT" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
