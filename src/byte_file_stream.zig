@@ -17,7 +17,7 @@ pub const ByteFileStream = struct {
         self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
         self._index = 0;
     }
-    pub fn clean_up(self: *ByteFileStream) void {
+    pub fn deinit(self: *ByteFileStream) void {
         self._allocator.free(self._buffer);
     }
     pub fn getPos(self: *ByteFileStream) usize {

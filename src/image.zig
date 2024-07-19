@@ -15,7 +15,7 @@ test "JPEG" {
     try image.load_JPEG("cat.jpg", &allocator);
     try image.convert_grayscale();
     try image.write_BMP("cat.bmp");
-    image.clean_up();
+    image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }

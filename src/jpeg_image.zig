@@ -220,8 +220,8 @@ const BitReader = struct {
         self._byte_stream = byte_file_stream.ByteFileStream{};
         try self._byte_stream.init(file_name, allocator);
     }
-    pub fn clean_up(self: *BitReader) void {
-        self._byte_stream.clean_up();
+    pub fn deinit(self: *BitReader) void {
+        self._byte_stream.deinit();
     }
     pub fn has_bits(self: *BitReader) bool {
         return if (self._byte_stream.getPos() != self._byte_stream.getEndPos()) true else false;
@@ -662,7 +662,7 @@ pub const JPEGImage = struct {
         std.debug.print("next header {x} {x}\n", .{ bit_reader._byte_stream._buffer[bit_reader._byte_stream._index], bit_reader._byte_stream._buffer[bit_reader._byte_stream._index + 1] });
         try self._read_scans(bit_reader);
     }
-    pub fn clean_up(self: *JPEGImage) void {
+    pub fn deinit(self: *JPEGImage) void {
         std.ArrayList(Pixel).deinit(self.data.?);
     }
     pub fn print(self: *JPEGImage) void {
@@ -1289,7 +1289,7 @@ pub const JPEGImage = struct {
         try self._gen_rgb_data();
         std.debug.print("finished processing jpeg\n", .{});
         self._loaded = true;
-        bit_reader.clean_up();
+        bit_reader.deinit();
     }
 };
 
@@ -1300,7 +1300,7 @@ pub const JPEGImage = struct {
 //     try image.load_JPEG("cat.jpg", &allocator);
 //     try image.convert_grayscale();
 //     try image.write_BMP("cat.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1312,7 +1312,7 @@ test "GORILLA" {
     var image = JPEGImage{};
     try image.load_JPEG("gorilla.jpg", &allocator);
     try image.write_BMP("gorilla.bmp");
-    image.clean_up();
+    image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
@@ -1324,7 +1324,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("sub/goldfish_2to1V.jpg", &allocator);
 //     try image.write_BMP("sub/goldfish_2to1V.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1336,7 +1336,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("sub/goldfish_2to1H.jpg", &allocator);
 //     try image.write_BMP("sub/goldfish_2to1H.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1348,7 +1348,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("sub/goldfish_2to1.jpg", &allocator);
 //     try image.write_BMP("sub/goldfish_2to1.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1360,7 +1360,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("test.jpg", &allocator);
 //     try image.write_BMP("test.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1372,7 +1372,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("prog/parrot.jpg", &allocator);
 //     try image.write_BMP("prog/parrot.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1384,7 +1384,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("prog/earth.jpg", &allocator);
 //     try image.write_BMP("prog/earth.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1396,7 +1396,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("prog/sub/penguin.jpg", &allocator);
 //     try image.write_BMP("prog/sub/penguin.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1408,7 +1408,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("prog/sub/sloth.jpg", &allocator);
 //     try image.write_BMP("prog/sub/sloth.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
@@ -1420,7 +1420,7 @@ test "GORILLA" {
 //     var image = JPEGImage{};
 //     try image.load_JPEG("prog/sub/tiger.jpg", &allocator);
 //     try image.write_BMP("prog/sub/tiger.bmp");
-//     image.clean_up();
+//     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
