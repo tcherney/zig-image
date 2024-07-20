@@ -88,6 +88,13 @@ pub const PNGImage = struct {
     _allocator: *std.mem.Allocator = undefined,
     _loaded: bool = false,
     _chunks: std.ArrayList(Chunk) = undefined,
+    width: u32 = undefined,
+    height: u32 = undefined,
+    bit_depth: u8 = undefined,
+    color_type: u8 = undefined,
+    compression_method: u8 = undefined,
+    filter_method: u8 = undefined,
+    interlace_method: u8 = undefined,
 
     fn read_chucks(self: *PNGImage) (byte_file_stream.BYTEFILESTREAM_ERRORS || PNGIMAGE_ERRORS || std.mem.Allocator.Error)!void {
         self._chunks = std.ArrayList(Chunk).init(self._allocator.*);
@@ -102,6 +109,23 @@ pub const PNGImage = struct {
             }
         }
         std.debug.print("all chunks read\n", .{});
+    }
+    fn handle_chunks(self: *PNGImage) void {
+        for (self._chunks.items) |*chunk| {
+            if (std.mem.eql(u8, chunk.chunk_type, "IHDR")) {
+                self.handle_IHDR(chunk);
+            }
+        }
+    }
+    fn handle_IHDR(self: *PNGImage, chunk: *Chunk) void {
+        self.width = (@as(u32, @intCast(chunk.chunk_data[0])) << 24) | (@as(u32, @intCast(chunk.chunk_data[1])) << 16) | (@as(u32, @intCast(chunk.chunk_data[2])) << 8) | (@as(u32, @intCast(chunk.chunk_data[3])));
+        self.height = (@as(u32, @intCast(chunk.chunk_data[4])) << 24) | (@as(u32, @intCast(chunk.chunk_data[5])) << 16) | (@as(u32, @intCast(chunk.chunk_data[6])) << 8) | (@as(u32, @intCast(chunk.chunk_data[7])));
+        self.bit_depth = chunk.chunk_data[8];
+        self.color_type = chunk.chunk_data[9];
+        self.compression_method = chunk.chunk_data[10];
+        self.filter_method = chunk.chunk_data[11];
+        self.interlace_method = chunk.chunk_data[12];
+        std.debug.print("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
     }
     fn read_sig(self: *PNGImage) (byte_file_stream.BYTEFILESTREAM_ERRORS || PNGIMAGE_ERRORS)!void {
         std.debug.print("reading signature\n", .{});
@@ -120,6 +144,7 @@ pub const PNGImage = struct {
         std.debug.print("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
+        self.handle_chunks();
     }
 
     pub fn deinit(self: *PNGImage) void {
