@@ -1,9 +1,10 @@
 //https://www.w3.org/TR/PNG-Structure.html
 //https://iter.ca/post/png/
+//https://pyokagan.name/blog/2019-10-18-zlibinflate/
 const std = @import("std");
-const byte_file_stream = @import("byte_file_stream.zig");
+const utils = @import("utils.zig");
 
-pub const PNGIMAGE_ERRORS = error{
+pub const PNGImage_Error = error{
     INVALID_SIGNATURE,
     INVALID_CRC,
 };
@@ -52,7 +53,7 @@ const Chunk = struct {
         self._allocator = allocator;
     }
 
-    pub fn read_chunk(self: *Chunk, file_data: *byte_file_stream.ByteFileStream) (std.mem.Allocator.Error || byte_file_stream.BYTEFILESTREAM_ERRORS)!void {
+    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) (std.mem.Allocator.Error || utils.ByteStream_Error)!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("length {d}\n", .{self.length});
         self._data = try self._allocator.alloc(u8, self.length + 4);
@@ -71,11 +72,11 @@ const Chunk = struct {
         self.crc_check = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("crc {d}\n", .{self.crc_check});
     }
-    pub fn verify_crc(self: *Chunk) PNGIMAGE_ERRORS!void {
+    pub fn verify_crc(self: *Chunk) PNGImage_Error!void {
         const calced_crc = calc_crc(self._data, @as(u32, @intCast(self._data.len)));
         std.debug.print("calculated crc {d}\n", .{calced_crc});
         if (calced_crc != self.crc_check) {
-            return PNGIMAGE_ERRORS.INVALID_CRC;
+            return PNGImage_Error.INVALID_CRC;
         }
     }
     pub fn deinit(self: *Chunk) void {
@@ -84,7 +85,7 @@ const Chunk = struct {
 };
 
 pub const PNGImage = struct {
-    _file_data: byte_file_stream.ByteFileStream = undefined,
+    _file_data: utils.ByteStream = undefined,
     _allocator: *std.mem.Allocator = undefined,
     _loaded: bool = false,
     _chunks: std.ArrayList(Chunk) = undefined,
@@ -95,8 +96,11 @@ pub const PNGImage = struct {
     compression_method: u8 = undefined,
     filter_method: u8 = undefined,
     interlace_method: u8 = undefined,
+    _plte_data: ?[]u8 = null,
+    _idat_data: []u8 = undefined,
+    _idat_data_len: usize = 0,
 
-    fn read_chucks(self: *PNGImage) (byte_file_stream.BYTEFILESTREAM_ERRORS || PNGIMAGE_ERRORS || std.mem.Allocator.Error)!void {
+    fn read_chucks(self: *PNGImage) (utils.ByteStream_Error || PNGImage_Error || std.mem.Allocator.Error)!void {
         self._chunks = std.ArrayList(Chunk).init(self._allocator.*);
         while (self._file_data.getPos() != self._file_data.getEndPos()) {
             var chunk: Chunk = Chunk{};
@@ -104,17 +108,32 @@ pub const PNGImage = struct {
             try chunk.read_chunk(&self._file_data);
             try chunk.verify_crc();
             try self._chunks.append(chunk);
-            if (std.mem.eql(u8, chunk.chunk_type, "IEND")) {
+            if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
+                self._idat_data_len += chunk.chunk_data.len;
+            } else if (std.mem.eql(u8, chunk.chunk_type, "IEND")) {
                 break;
             }
         }
         std.debug.print("all chunks read\n", .{});
     }
-    fn handle_chunks(self: *PNGImage) void {
+    fn handle_chunks(self: *PNGImage) std.mem.Allocator.Error!void {
+        self._idat_data = try self._allocator.alloc(u8, self._idat_data_len);
+        var index: usize = 0;
         for (self._chunks.items) |*chunk| {
             if (std.mem.eql(u8, chunk.chunk_type, "IHDR")) {
                 self.handle_IHDR(chunk);
+            } else if (std.mem.eql(u8, chunk.chunk_type, "PLTE")) {
+                self._plte_data.? = chunk.chunk_data;
+            } else if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
+                self.handle_IDAT(chunk, &index);
             }
+        }
+        std.debug.print("index = {d}, len = {d}\n", .{ index, self._idat_data_len });
+    }
+    fn handle_IDAT(self: *PNGImage, chunk: *Chunk, index: *usize) void {
+        for (chunk.chunk_data) |data| {
+            self._idat_data[index.*] = data;
+            index.* += 1;
         }
     }
     fn handle_IHDR(self: *PNGImage, chunk: *Chunk) void {
@@ -127,24 +146,33 @@ pub const PNGImage = struct {
         self.interlace_method = chunk.chunk_data[12];
         std.debug.print("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
     }
-    fn read_sig(self: *PNGImage) (byte_file_stream.BYTEFILESTREAM_ERRORS || PNGIMAGE_ERRORS)!void {
+    fn read_sig(self: *PNGImage) (utils.ByteStream_Error || PNGImage_Error)!void {
         std.debug.print("reading signature\n", .{});
         const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
         for (signature) |sig| {
             const current = try self._file_data.readByte();
             if (current != sig) {
-                return PNGIMAGE_ERRORS.INVALID_SIGNATURE;
+                return PNGImage_Error.INVALID_SIGNATURE;
             }
         }
     }
+    fn decompress(self: *PNGImage) (std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error)!void {
+        var bit_reader: utils.BitReader(PNGImage) = utils.BitReader(PNGImage){};
+        bit_reader.init(self._idat_data);
+        defer bit_reader.deinit();
+        const CMF = try bit_reader.read_byte();
+        const CM = CMF & 15;
+        std.debug.print("compression method {d}\n", .{CM});
+    }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
-        self._file_data = byte_file_stream.ByteFileStream{};
-        try self._file_data.init(file_name, self._allocator);
+        self._file_data = utils.ByteStream{};
+        try self._file_data.init_file(file_name, self._allocator);
         std.debug.print("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
-        self.handle_chunks();
+        try self.handle_chunks();
+        try self.decompress();
     }
 
     pub fn deinit(self: *PNGImage) void {
@@ -153,6 +181,7 @@ pub const PNGImage = struct {
             chunk.deinit();
         }
         std.ArrayList(Chunk).deinit(self._chunks);
+        self._allocator.free(self._idat_data);
     }
 };
 
