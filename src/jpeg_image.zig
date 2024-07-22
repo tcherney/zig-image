@@ -109,9 +109,6 @@ pub const JPEGImage_Error = error{
     INVALID_COMPONENT_LENGTH,
     UNINITIALIZED_TABLE,
     INVALID_SAMPLING_FACTOR,
-};
-
-pub const IMAGE_ERRORS = error{
     NOT_LOADED,
 };
 
@@ -235,20 +232,20 @@ pub const JPEGImage = struct {
     _block_width_real: u32 = 0,
     horizontal_sampling_factor: u32 = 1,
     vertical_sampling_factor: u32 = 1,
-    fn _read_start_of_frame(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.ByteStream_Error || JPEGImage_Error)!void {
+    fn _read_start_of_frame(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.BitReader_Error || utils.ByteStream_Error || JPEGImage_Error)!void {
         std.debug.print("Reading SOF marker\n", .{});
         if (self._num_components != 0) {
             return JPEGImage_Error.INVALID_HEADER;
         }
 
-        const length: u16 = try bit_reader.read_word();
+        const length: u16 = try bit_reader.read_word(.{});
 
         const precision: u8 = try bit_reader.read_byte();
         if (precision != 8) {
             return JPEGImage_Error.INVALID_HEADER;
         }
-        self.height = try bit_reader.read_word();
-        self.width = try bit_reader.read_word();
+        self.height = try bit_reader.read_word(.{});
+        self.width = try bit_reader.read_word(.{});
         std.debug.print("width {d} height {d}\n", .{ self.width, self.height });
         if (self.height == 0 or self.width == 0) {
             return JPEGImage_Error.INVALID_HEADER;
@@ -323,8 +320,8 @@ pub const JPEGImage = struct {
             return JPEGImage_Error.INVALID_HEADER;
         }
     }
-    fn _read_quant_table(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (JPEGImage_Error || utils.ByteStream_Error)!void {
-        var length: i16 = @bitCast(try bit_reader.read_word());
+    fn _read_quant_table(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.BitReader_Error || JPEGImage_Error || utils.ByteStream_Error)!void {
+        var length: i16 = @bitCast(try bit_reader.read_word(.{}));
         length -= 2;
         while (length > 0) {
             std.debug.print("Reading a Quant table\n", .{});
@@ -339,7 +336,7 @@ pub const JPEGImage = struct {
             if (table_info >> 4 != 0) {
                 // 16 bit values
                 for (0..64) |i| {
-                    self._quantization_tables[table_id].table[zig_zag_map[i]] = try bit_reader.read_word();
+                    self._quantization_tables[table_id].table[zig_zag_map[i]] = try bit_reader.read_word(.{});
                 }
                 length -= 128;
             } else {
@@ -354,21 +351,21 @@ pub const JPEGImage = struct {
             return JPEGImage_Error.INVALID_DQT;
         }
     }
-    fn _read_restart_interval(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (JPEGImage_Error || utils.ByteStream_Error)!void {
+    fn _read_restart_interval(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.BitReader_Error || JPEGImage_Error || utils.ByteStream_Error)!void {
         std.debug.print("Reading DRI marker\n", .{});
-        const length: i16 = @bitCast(try bit_reader.read_word());
-        self._restart_interval = try bit_reader.read_word();
+        const length: i16 = @bitCast(try bit_reader.read_word(.{}));
+        self._restart_interval = try bit_reader.read_word(.{});
         if (length - 4 != 0) {
             return JPEGImage_Error.INVALID_RESTART_MARKER;
         }
         std.debug.print("Restart interval {d}\n", .{self._restart_interval});
     }
-    fn _read_start_of_scan(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (JPEGImage_Error || utils.ByteStream_Error)!void {
+    fn _read_start_of_scan(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.BitReader_Error || JPEGImage_Error || utils.ByteStream_Error)!void {
         std.debug.print("Reading SOS marker\n", .{});
         if (self._num_components == 0) {
             return JPEGImage_Error.INVALID_HEADER;
         }
-        const length: u16 = try bit_reader.read_word();
+        const length: u16 = try bit_reader.read_word(.{});
         for (0..self._num_components) |i| {
             self._color_components[i].used_in_scan = false;
         }
@@ -435,9 +432,9 @@ pub const JPEGImage = struct {
             return JPEGImage_Error.INVALID_SOS;
         }
     }
-    fn _read_huffman(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (JPEGImage_Error || utils.ByteStream_Error)!void {
+    fn _read_huffman(self: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) (utils.BitReader_Error || JPEGImage_Error || utils.ByteStream_Error)!void {
         std.debug.print("Reading DHT marker\n", .{});
-        var length: i16 = @bitCast(try bit_reader.read_word());
+        var length: i16 = @bitCast(try bit_reader.read_word(.{}));
         length -= 2;
         while (length > 0) {
             const table_info: u8 = try bit_reader.read_byte();
@@ -474,10 +471,10 @@ pub const JPEGImage = struct {
         }
     }
     fn _skippable_header(_: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) !void {
-        _ = try bit_reader.read_word();
+        _ = try bit_reader.read_word(.{});
     }
     fn _read_appn(_: *JPEGImage, bit_reader: *utils.BitReader(JPEGImage)) !void {
-        const length: u16 = try bit_reader.read_word();
+        const length: u16 = try bit_reader.read_word(.{});
         if (length < 2) {
             return JPEGImage_Error.INVALID_HEADER;
         }
@@ -1165,12 +1162,12 @@ pub const JPEGImage = struct {
                 self.data.?.items[i].b = gray;
             }
         } else {
-            return IMAGE_ERRORS.NOT_LOADED;
+            return JPEGImage_Error.NOT_LOADED;
         }
     }
     pub fn write_BMP(self: *JPEGImage, file_name: []const u8) !void {
         if (!self._loaded) {
-            //return IMAGE_ERRORS.NOT_LOADED;
+            return JPEGImage_Error.NOT_LOADED;
         }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();

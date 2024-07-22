@@ -50,6 +50,7 @@ pub const ByteStream = struct {
 
 pub const BitReader_Error = error{
     INVALID_READ,
+    INVALID_ARGS,
 };
 
 pub fn BitReader(comptime T: type) type {
@@ -76,12 +77,59 @@ pub fn BitReader(comptime T: type) type {
             self.next_bit = 0;
             return try self._byte_stream.readByte();
         }
-        pub fn read_word(self: *Self) ByteStream_Error!u16 {
+        pub fn read_word(self: *Self, args: anytype) (BitReader_Error || ByteStream_Error)!u16 {
+            const ArgsType = @TypeOf(args);
+            const args_type_info = @typeInfo(ArgsType);
+            if (args_type_info != .Struct) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            const fields_info = args_type_info.Struct.fields;
+            if (fields_info.len != 0 and fields_info.len != 1) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            if (fields_info.len != 0 and !std.mem.eql(u8, fields_info[0].name, "little_endian")) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            const little_endian: bool = if (fields_info.len == 1) @field(args, "little_endian") else false;
             self.next_bit = 0;
             var ret_word: u16 = @as(u16, try self._byte_stream.readByte());
-            ret_word <<= 8;
-            ret_word += try self._byte_stream.readByte();
+            if (little_endian) {
+                ret_word |= @as(u16, @intCast(try self._byte_stream.readByte())) << 8;
+            } else {
+                ret_word <<= 8;
+                ret_word += try self._byte_stream.readByte();
+            }
+
             return ret_word;
+        }
+        pub fn read_int(self: *Self, args: anytype) (BitReader_Error || ByteStream_Error)!u32 {
+            const ArgsType = @TypeOf(args);
+            const args_type_info = @typeInfo(ArgsType);
+            if (args_type_info != .Struct) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            const fields_info = args_type_info.Struct.fields;
+            if (fields_info.len != 0 and fields_info.len != 1) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            if (fields_info.len != 0 and !std.mem.eql(u8, fields_info[0].name, "little_endian")) {
+                return BitReader_Error.INVALID_ARGS;
+            }
+            const little_endian: bool = if (fields_info.len == 1) @field(args, "little_endian") else false;
+            self.next_bit = 0;
+            var ret_int: u32 = @as(u32, try self._byte_stream.readByte());
+            if (little_endian) {
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 24;
+            } else {
+                ret_int <<= 24;
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
+                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte()));
+            }
+
+            return ret_int;
         }
         pub fn read_bit(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
             if (self.next_bit == 0) {

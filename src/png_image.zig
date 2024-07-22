@@ -11,6 +11,7 @@ pub const PNGImage_Error = error{
     INVALID_WINDOW_SIZE,
     INVALID_DEFLATE_CHECKSUM,
     INVALID_PRESET_DICT,
+    INVALID_BTYPE,
 };
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -160,7 +161,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decompress(self: *PNGImage) (std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error)![]u8 {
+    fn decompress(self: *PNGImage) (std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error || utils.BitReader_Error)!std.ArrayList(u8) {
         var bit_reader: utils.BitReader(PNGImage) = utils.BitReader(PNGImage){};
         bit_reader.init(self._idat_data);
         defer bit_reader.deinit();
@@ -174,25 +175,50 @@ pub const PNGImage = struct {
         if (CINFO > 7) {
             return PNGImage_Error.INVALID_WINDOW_SIZE;
         }
-        const FLG = bit_reader.read_byte();
-        if ((CMF * 256 + FLG) % 0x1F != 0) {
+        const FLG = try bit_reader.read_byte();
+        if ((@as(u32, @intCast(CMF)) * 256 + @as(u32, @intCast(FLG))) % 0x1F != 0) {
             return PNGImage_Error.INVALID_DEFLATE_CHECKSUM;
         }
         const FDICT = (FLG >> 5) & 1;
         if (FDICT != 0) {
             return PNGImage_Error.INVALID_PRESET_DICT;
         }
-        const ret = self.inflate(&bit_reader);
-        var ADLER32 = bit_reader.read_byte();
-        ADLER32 |= bit_reader.read_byte() << 8;
-        ADLER32 |= bit_reader.read_byte() << 16;
-        ADLER32 |= bit_reader.read_byte() << 24;
+        const ret: std.ArrayList(u8) = try self.inflate(&bit_reader);
+        var ADLER32: u32 = try bit_reader.read_byte();
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 8;
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 16;
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 24;
         return ret;
     }
-    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) std.ArrayList(u8) {
-        var BFINAL = 0;
-        var ret = std.ArrayList(u8).init(self._allocator);
+    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) (std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!std.ArrayList(u8) {
+        var BFINAL: u32 = 0;
+        var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self._allocator.*);
+        while (BFINAL == 0) {
+            BFINAL = try bit_reader.read_bit();
+            const BTYPE = try bit_reader.read_bits(2);
+            if (BTYPE == 0) {
+                try self.inflate_block_no_compression(bit_reader, &ret);
+            } else if (BTYPE == 1) {
+                //self.inflate_block_fixed(bit_reader, &ret);
+            } else if (BTYPE == 2) {
+                //self.inflate_block_dynamic(bit_reader, &ret);
+            } else {
+                return PNGImage_Error.INVALID_BTYPE;
+            }
+        }
+        return ret;
     }
+    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!void {
+        const LEN = try bit_reader.read_word(.{ .little_endian = true });
+        std.debug.print("LEN {d}\n", .{LEN});
+        //const NLEN = bit_reader.read_bytes(u16, .{ .little_endian = true });
+        _ = try bit_reader.read_word(.{ .little_endian = true });
+        for (0..LEN) |_| {
+            try ret.append(try bit_reader.read_byte());
+        }
+    }
+    //fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {}
+    //fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {}
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.ByteStream{};
@@ -201,9 +227,64 @@ pub const PNGImage = struct {
         try self.read_sig();
         try self.read_chucks();
         try self.handle_chunks();
-        var ret = try self.decompress();
+        const ret: std.ArrayList(u8) = try self.decompress();
         defer std.ArrayList(u8).deinit(ret);
     }
+    fn _little_endian(_: *PNGImage, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
+        switch (num_bytes) {
+            2 => {
+                try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
+            },
+            4 => {
+                try file.writer().writeInt(u32, i, std.builtin.Endian.little);
+            },
+            else => unreachable,
+        }
+    }
+    // pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
+    //     // if (!self._loaded) {
+    //     //     return JPEGImage_Error.NOT_LOADED;
+    //     // }
+    //     const image_file = try std.fs.cwd().createFile(file_name, .{});
+    //     defer image_file.close();
+    //     try image_file.writer().writeByte('B');
+    //     try image_file.writer().writeByte('M');
+    //     const padding_size: u32 = self.width % 4;
+    //     const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+
+    //     var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
+    //     var buffer_pos = buffer[0..buffer.len];
+    //     defer self._allocator.free(buffer);
+    //     try self._little_endian(&image_file, 4, size);
+    //     try self._little_endian(&image_file, 4, 0);
+    //     try self._little_endian(&image_file, 4, 0x1A);
+    //     try self._little_endian(&image_file, 4, 12);
+    //     try self._little_endian(&image_file, 2, self.width);
+    //     try self._little_endian(&image_file, 2, self.height);
+    //     try self._little_endian(&image_file, 2, 1);
+    //     try self._little_endian(&image_file, 2, 24);
+    //     var i: usize = 0;
+    //     var j: usize = 0;
+    //     while (i < self.height) {
+    //         while (j < self.width) {
+    //             const pixel: *Pixel = &self.data.?.items[i * self.width + j];
+    //             buffer_pos[0] = pixel.b;
+    //             buffer_pos.ptr += 1;
+    //             buffer_pos[0] = pixel.g;
+    //             buffer_pos.ptr += 1;
+    //             buffer_pos[0] = pixel.r;
+    //             buffer_pos.ptr += 1;
+    //             j += 1;
+    //         }
+    //         for (0..padding_size) |_| {
+    //             buffer_pos[0] = 0;
+    //             buffer_pos.ptr += 1;
+    //         }
+    //         j = 0;
+    //         i += 1;
+    //     }
+    //     try image_file.writeAll(buffer);
+    // }
 
     pub fn deinit(self: *PNGImage) void {
         self._file_data.deinit();
