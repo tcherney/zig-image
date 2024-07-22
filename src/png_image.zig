@@ -7,6 +7,10 @@ const utils = @import("utils.zig");
 pub const PNGImage_Error = error{
     INVALID_SIGNATURE,
     INVALID_CRC,
+    INVALID_COMPRESSION_METHOD,
+    INVALID_WINDOW_SIZE,
+    INVALID_DEFLATE_CHECKSUM,
+    INVALID_PRESET_DICT,
 };
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -156,13 +160,38 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decompress(self: *PNGImage) (std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error)!void {
+    fn decompress(self: *PNGImage) (std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error)![]u8 {
         var bit_reader: utils.BitReader(PNGImage) = utils.BitReader(PNGImage){};
         bit_reader.init(self._idat_data);
         defer bit_reader.deinit();
         const CMF = try bit_reader.read_byte();
-        const CM = CMF & 15;
+        const CM = CMF & 0xF;
         std.debug.print("compression method {d}\n", .{CM});
+        if (CM != 8) {
+            return PNGImage_Error.INVALID_COMPRESSION_METHOD;
+        }
+        const CINFO = (CMF >> 4) & 0xF;
+        if (CINFO > 7) {
+            return PNGImage_Error.INVALID_WINDOW_SIZE;
+        }
+        const FLG = bit_reader.read_byte();
+        if ((CMF * 256 + FLG) % 0x1F != 0) {
+            return PNGImage_Error.INVALID_DEFLATE_CHECKSUM;
+        }
+        const FDICT = (FLG >> 5) & 1;
+        if (FDICT != 0) {
+            return PNGImage_Error.INVALID_PRESET_DICT;
+        }
+        const ret = self.inflate(&bit_reader);
+        var ADLER32 = bit_reader.read_byte();
+        ADLER32 |= bit_reader.read_byte() << 8;
+        ADLER32 |= bit_reader.read_byte() << 16;
+        ADLER32 |= bit_reader.read_byte() << 24;
+        return ret;
+    }
+    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) std.ArrayList(u8) {
+        var BFINAL = 0;
+        var ret = std.ArrayList(u8).init(self._allocator);
     }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
@@ -172,7 +201,8 @@ pub const PNGImage = struct {
         try self.read_sig();
         try self.read_chucks();
         try self.handle_chunks();
-        try self.decompress();
+        var ret = try self.decompress();
+        defer std.ArrayList(u8).deinit(ret);
     }
 
     pub fn deinit(self: *PNGImage) void {
