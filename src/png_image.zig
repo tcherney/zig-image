@@ -211,8 +211,8 @@ pub const PNGImage = struct {
     fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!void {
         const LEN = try bit_reader.read_word(.{ .little_endian = true });
         std.debug.print("LEN {d}\n", .{LEN});
-        //const NLEN = bit_reader.read_bytes(u16, .{ .little_endian = true });
-        _ = try bit_reader.read_word(.{ .little_endian = true });
+        const NLEN = try bit_reader.read_word(.{ .little_endian = true });
+        std.debug.print("NLEN {d}\n", .{NLEN});
         for (0..LEN) |_| {
             try ret.append(try bit_reader.read_byte());
         }

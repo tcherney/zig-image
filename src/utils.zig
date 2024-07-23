@@ -1,6 +1,51 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 
+pub fn TreeNode(comptime T: type) type {
+    return struct {
+        symbol: T = undefined,
+        left: ?*TreeNode(T) = null,
+        right: ?*TreeNode(T) = null,
+    };
+}
+
+pub fn HuffmanTree(comptime T: type) type {
+    return struct {
+        root: *TreeNode(T),
+        allocator: std.mem.Allocator,
+        const Self = @This();
+        pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!HuffmanTree(T) {
+            return .{
+                .root = try allocator.create(TreeNode(T)),
+                .allocator = allocator,
+            };
+        }
+        pub fn insert(self: *Self, codeword: T, n: T, symbol: T) std.mem.Allocator.Error!void {
+            var node: *TreeNode(T) = self.root;
+            var i = n - 1;
+            var next_node: *TreeNode(T) = undefined;
+            while (i > 0) : (i -= 1) {
+                const b = codeword & (@as(T, @intCast(1)) << i);
+                if (b != 0) {
+                    next_node = node.right;
+                    if (!next_node) {
+                        node.right = try self.allocator.create(TreeNode(T));
+                        next_node = node.right;
+                    }
+                } else {
+                    next_node = node.left;
+                    if (!next_node) {
+                        node.left = try self.allocator.create(TreeNode(T));
+                        next_node = node.left;
+                    }
+                }
+                node = next_node;
+            }
+            node.symbol = symbol;
+        }
+    };
+}
+
 pub const ByteStream_Error = error{
     OUT_OF_BOUNDS,
 };
@@ -172,4 +217,17 @@ pub fn BitReader(comptime T: type) type {
             self.next_bit = 0;
         }
     };
+}
+
+test "HUFFMAN_TREE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var t = try HuffmanTree(u32).init(allocator);
+    try t.insert(1, 2, 'A');
+    try t.insert(1, 1, 'B');
+    try t.insert(0, 3, 'C');
+    try t.insert(1, 3, 'D');
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
 }
