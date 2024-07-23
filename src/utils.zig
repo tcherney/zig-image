@@ -1,45 +1,67 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 
-pub fn TreeNode(comptime T: type) type {
-    return struct {
-        symbol: T = undefined,
-        left: ?*TreeNode(T) = null,
-        right: ?*TreeNode(T) = null,
-    };
-}
-
 pub fn HuffmanTree(comptime T: type) type {
     return struct {
-        root: *TreeNode(T),
+        root: Node,
         allocator: std.mem.Allocator,
         const Self = @This();
+        pub const Node = struct {
+            symbol: T,
+            left: ?*Node,
+            right: ?*Node,
+            pub fn init() Node {
+                return Node{
+                    .symbol = ' ',
+                    .left = null,
+                    .right = null,
+                };
+            }
+        };
         pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!HuffmanTree(T) {
             return .{
-                .root = try allocator.create(TreeNode(T)),
+                .root = Node.init(),
                 .allocator = allocator,
             };
         }
+        pub fn deinit_node(self: *Self, node: ?*Node) void {
+            if (node) |parent| {
+                self.deinit_node(parent.left);
+                self.deinit_node(parent.right);
+                self.allocator.destroy(parent);
+            }
+        }
+        pub fn deinit(self: *Self) void {
+            self.deinit_node(self.root.left);
+            self.deinit_node(self.root.right);
+        }
         pub fn insert(self: *Self, codeword: T, n: T, symbol: T) std.mem.Allocator.Error!void {
-            var node: *TreeNode(T) = self.root;
+            std.debug.print("inserting {b} with length {d} and symbol {d}\n", .{ codeword, n, symbol });
+            var node: *Node = &self.root;
             var i = n - 1;
-            var next_node: *TreeNode(T) = undefined;
-            while (i > 0) : (i -= 1) {
-                const b = codeword & (@as(T, @intCast(1)) << i);
+            var next_node: ?*Node = null;
+            while (i >= 0) : (i -= 1) {
+                const b = codeword & std.math.shl(T, 1, i);
+                std.debug.print("b {d}\n", .{b});
                 if (b != 0) {
-                    next_node = node.right;
-                    if (!next_node) {
-                        node.right = try self.allocator.create(TreeNode(T));
+                    if (node.right) |right| {
+                        next_node = right;
+                    } else {
+                        node.right = try self.allocator.create(Node);
+                        node.right.?.* = Node.init();
                         next_node = node.right;
                     }
                 } else {
-                    next_node = node.left;
-                    if (!next_node) {
-                        node.left = try self.allocator.create(TreeNode(T));
+                    if (node.left) |left| {
+                        next_node = left;
+                    } else {
+                        node.left = try self.allocator.create(Node);
+                        node.left.?.* = Node.init();
                         next_node = node.left;
                     }
                 }
-                node = next_node;
+                node = next_node.?;
+                if (i == 0) break;
             }
             node.symbol = symbol;
         }
@@ -227,6 +249,7 @@ test "HUFFMAN_TREE" {
     try t.insert(1, 1, 'B');
     try t.insert(0, 3, 'C');
     try t.insert(1, 3, 'D');
+    t.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
