@@ -89,6 +89,12 @@ const Chunk = struct {
     }
 };
 
+const LengthExtraBits: []u16 = [_]u16{ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+const LengthBase: []u16 = [_]u16{ 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
+const DistanceExtraBits: []u16 = [_]u16{ 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
+const DistanceBase: []u16 = [_]u16{ 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+const CodeLengthCodesOrder: []u16 = [_]u16{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+
 pub const PNGImage = struct {
     _file_data: utils.ByteStream = undefined,
     _allocator: *std.mem.Allocator = undefined,
@@ -208,6 +214,14 @@ pub const PNGImage = struct {
         }
         return ret;
     }
+    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), tree: utils.HuffmanTree(u16)) u16 {
+        var node = tree.root;
+        while (node.left != null and node.right != null) {
+            const bit = bit_reader.read_bit();
+            node = if (bit != 0) node.right else node.left;
+        }
+        return node.symbol;
+    }
     fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!void {
         const LEN = try bit_reader.read_word(.{ .little_endian = true });
         std.debug.print("LEN {d}\n", .{LEN});
@@ -215,6 +229,53 @@ pub const PNGImage = struct {
         std.debug.print("NLEN {d}\n", .{NLEN});
         for (0..LEN) |_| {
             try ret.append(try bit_reader.read_byte());
+        }
+    }
+    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u8) utils.HuffmanTree(u16) {
+        const MAX_BITS = std.math.maxInt(bit_length_list);
+        var bl_count: []u16 = [_]u16{0} ** MAX_BITS + 1;
+        for (0..bl_count.len) |i| {
+            var sum = 0;
+            for (bit_length_list) |j| {
+                if (j == @as(u16, @intCast(i)) and i != 0) {
+                    sum += 1;
+                }
+            }
+            bl_count[i] = sum;
+        }
+        var next_code: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator);
+        defer std.ArrayList(u16).deinit(next_code);
+        try next_code.append(0);
+        try next_code.append(0);
+        for (2..MAX_BITS + 1) |bits| {
+            next_code.append((next_code.items[bits - 1] + bl_count[bits - 1]) << 1);
+        }
+        var tree: *utils.HuffmanTree(u16) = self._allocator.create(utils.HuffmanTree(u16));
+        tree.* = utils.HuffmanTree(u16).init(self._allocator);
+        for (alphabet, bit_length_list) |c, bitlen| {
+            if (bitlen != 0) {
+                tree.insert(next_code[bitlen], bitlen, c);
+                next_code[bitlen] += 1;
+            }
+        }
+        return tree;
+    }
+    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) void {
+        while (true) {
+            var symbol = self.decode_symbol(bit_reader, literal_length_tree);
+            if (symbol <= 255) {
+                try ret.append(@as(u8, @intCast(symbol)));
+            } else if (symbol == 256) {
+                return;
+            } else {
+                symbol -= 257;
+                const length = bit_reader.read_bits(LengthExtraBits[symbol] + LengthBase[symbol]);
+                const distance_symbol = self.decode_symbol(bit_reader, distance_tree);
+                const distance = bit_reader.read_bits(DistanceExtraBits[distance_symbol] + DistanceBase[distance_symbol]);
+                for (0..length) |_| {
+                    try ret.append(ret.items[ret.items.len - distance]);
+                }
+            }
         }
     }
     //fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {}
