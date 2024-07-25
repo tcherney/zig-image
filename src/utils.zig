@@ -1,6 +1,25 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 
+pub const Max_error = error{
+    NO_ITEMS,
+};
+
+pub fn max_array(comptime T: type, arr: []T) Max_error!T {
+    if (arr.len == 1) {
+        return arr[0];
+    } else if (arr.len == 0) {
+        return Max_error.NO_ITEMS;
+    }
+    var max_t: T = arr[0];
+    for (1..arr.len) |i| {
+        if (arr[i] > max_t) {
+            max_t = arr[i];
+        }
+    }
+    return max_t;
+}
+
 pub fn HuffmanTree(comptime T: type) type {
     return struct {
         root: Node,

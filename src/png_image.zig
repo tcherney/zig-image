@@ -12,6 +12,7 @@ pub const PNGImage_Error = error{
     INVALID_DEFLATE_CHECKSUM,
     INVALID_PRESET_DICT,
     INVALID_BTYPE,
+    INVALID_HUFFMAN_SYMBOL,
 };
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -89,11 +90,11 @@ const Chunk = struct {
     }
 };
 
-const LengthExtraBits: []u16 = [_]u16{ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
-const LengthBase: []u16 = [_]u16{ 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
-const DistanceExtraBits: []u16 = [_]u16{ 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
-const DistanceBase: []u16 = [_]u16{ 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
-const CodeLengthCodesOrder: []u16 = [_]u16{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+const LengthExtraBits = [_]u16{ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+const LengthBase = [_]u16{ 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
+const DistanceExtraBits = [_]u16{ 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
+const DistanceBase = [_]u16{ 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+const CodeLengthCodesOrder = [_]u16{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
 
 pub const PNGImage = struct {
     _file_data: utils.ByteStream = undefined,
@@ -205,9 +206,9 @@ pub const PNGImage = struct {
             if (BTYPE == 0) {
                 try self.inflate_block_no_compression(bit_reader, &ret);
             } else if (BTYPE == 1) {
-                //self.inflate_block_fixed(bit_reader, &ret);
+                self.inflate_block_fixed(bit_reader, &ret);
             } else if (BTYPE == 2) {
-                //self.inflate_block_dynamic(bit_reader, &ret);
+                self.inflate_block_dynamic(bit_reader, &ret);
             } else {
                 return PNGImage_Error.INVALID_BTYPE;
             }
@@ -231,11 +232,11 @@ pub const PNGImage = struct {
             try ret.append(try bit_reader.read_byte());
         }
     }
-    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u8) utils.HuffmanTree(u16) {
-        const MAX_BITS = std.math.maxInt(bit_length_list);
-        var bl_count: []u16 = [_]u16{0} ** MAX_BITS + 1;
+    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) !utils.HuffmanTree(u16) {
+        const MAX_BITS = try utils.max_array(u16, bit_length_list);
+        var bl_count: []u16 = try self._allocator.alloc(u16, MAX_BITS + 1);
         for (0..bl_count.len) |i| {
-            var sum = 0;
+            var sum: u16 = 0;
             for (bit_length_list) |j| {
                 if (j == @as(u16, @intCast(i)) and i != 0) {
                     sum += 1;
@@ -243,24 +244,25 @@ pub const PNGImage = struct {
             }
             bl_count[i] = sum;
         }
-        var next_code: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator);
+        var next_code: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
         defer std.ArrayList(u16).deinit(next_code);
         try next_code.append(0);
         try next_code.append(0);
         for (2..MAX_BITS + 1) |bits| {
-            next_code.append((next_code.items[bits - 1] + bl_count[bits - 1]) << 1);
+            try next_code.append((next_code.items[bits - 1] + bl_count[bits - 1]) << 1);
         }
-        var tree: *utils.HuffmanTree(u16) = self._allocator.create(utils.HuffmanTree(u16));
-        tree.* = utils.HuffmanTree(u16).init(self._allocator);
-        for (alphabet, bit_length_list) |c, bitlen| {
-            if (bitlen != 0) {
-                tree.insert(next_code[bitlen], bitlen, c);
-                next_code[bitlen] += 1;
+        var tree: *utils.HuffmanTree(u16) = try self._allocator.create(utils.HuffmanTree(u16));
+        tree.* = try utils.HuffmanTree(u16).init(self._allocator.*);
+        const max_len = @max(alphabet.len, bit_length_list.len);
+        for (0..max_len) |i| {
+            if (bit_length_list[i] != 0) {
+                try tree.insert(next_code[bit_length_list[i]], bit_length_list[i], alphabet[i]);
+                next_code[bit_length_list[i]] += 1;
             }
         }
         return tree;
     }
-    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) void {
+    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) !void {
         while (true) {
             var symbol = self.decode_symbol(bit_reader, literal_length_tree);
             if (symbol <= 255) {
@@ -269,17 +271,102 @@ pub const PNGImage = struct {
                 return;
             } else {
                 symbol -= 257;
-                const length = bit_reader.read_bits(LengthExtraBits[symbol] + LengthBase[symbol]);
+                const length = @as(u16, @intCast(try bit_reader.read_bits(LengthExtraBits[symbol] + LengthBase[symbol])));
                 const distance_symbol = self.decode_symbol(bit_reader, distance_tree);
-                const distance = bit_reader.read_bits(DistanceExtraBits[distance_symbol] + DistanceBase[distance_symbol]);
+                const distance = @as(u16, @intCast(try bit_reader.read_bits(DistanceExtraBits[distance_symbol] + DistanceBase[distance_symbol])));
                 for (0..length) |_| {
                     try ret.append(ret.items[ret.items.len - distance]);
                 }
             }
         }
     }
-    //fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {}
-    //fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {}
+    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) !struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
+        const HLIT: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 257;
+        const HDIST: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 1;
+        const HCLEN: u16 = @as(u16, @intCast(try bit_reader.read_bits(4))) + 4;
+        var code_length_bit_list: [19]u16 = [_]u16{0} ** 19;
+        for (0..HCLEN) |i| {
+            code_length_bit_list[CodeLengthCodesOrder[i]] = @as(u16, @intCast(try bit_reader.read_bits(3)));
+        }
+        var alphabet: [19]u16 = [_]u16{0} ** 19;
+        for (0..alphabet.len) |i| {
+            alphabet[i] = @as(u16, @intCast(i));
+        }
+        const code_length_tree = self.bit_length_list_to_tree(&code_length_bit_list, &alphabet);
+        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
+        defer std.ArrayList(u16).deinit(bit_length_list);
+        while (bit_length_list.items.len < HLIT + HDIST) {
+            const symbol = self.decode_symbol(bit_reader, code_length_tree);
+            if (symbol <= 15) {
+                try bit_length_list.append(symbol);
+            } else if (symbol == 16) {
+                const prev_code_length = bit_length_list.getLast();
+                const repeat_length = @as(u16, @intCast(try bit_reader.read_bits(2))) + 3;
+                for (0..repeat_length) |_| {
+                    try bit_length_list.append(prev_code_length);
+                }
+            } else if (symbol == 17) {
+                const repeat_length = @as(u16, @intCast(try bit_reader.read_bits(3))) + 3;
+                for (0..repeat_length) |_| {
+                    try bit_length_list.append(0);
+                }
+            } else if (symbol == 18) {
+                const repeat_length = @as(u16, @intCast(try bit_reader.read_bits(7))) + 11;
+                for (0..repeat_length) |_| {
+                    try bit_length_list.append(0);
+                }
+            } else {
+                return PNGImage_Error.INVALID_HUFFMAN_SYMBOL;
+            }
+        }
+        var literal_length_alphabet: [286]u16 = [_]u16{0} ** 286;
+        for (0..literal_length_alphabet.len) |i| {
+            literal_length_alphabet[i] = @as(u16, @intCast(i));
+        }
+        const literal_length_tree = self.bit_length_list_to_tree(bit_length_list.items[0..HLIT], literal_length_alphabet);
+        var distance_tree_alphabet: [30]u16 = [_]u16{0} ** 30;
+        for (0..distance_tree_alphabet.len) |i| {
+            distance_tree_alphabet[i] = @as(u16, @intCast(i));
+        }
+        const distance_tree = self.bit_length_list_to_tree(bit_length_list.items[HLIT..], distance_tree_alphabet);
+        return .{ .literal_length_tree = literal_length_tree, .distance_tree = distance_tree };
+    }
+    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {
+        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
+        defer std.ArrayList(u16).deinit(bit_length_list);
+        for (0..144) |_| {
+            try bit_length_list.append(8);
+        }
+        for (144..256) |_| {
+            try bit_length_list.append(9);
+        }
+        for (256..280) |_| {
+            try bit_length_list.append(7);
+        }
+        for (280..288) |_| {
+            try bit_length_list.append(8);
+        }
+        var literal_length_alphabet: [286]u16 = [_]u16{0} ** 286;
+        for (0..literal_length_alphabet.len) |i| {
+            literal_length_alphabet[i] = @as(u16, @intCast(i));
+        }
+        var literal_length_tree = self.bit_length_list_to_tree(bit_length_list.items, literal_length_alphabet);
+        var distance_tree_alphabet: [30]u16 = [_]u16{0} ** 30;
+        for (0..distance_tree_alphabet.len) |i| {
+            distance_tree_alphabet[i] = @as(u16, @intCast(i));
+        }
+        const bit_list_distance: [30]u16 = [_]u16{5} ** 30;
+        var distance_tree = self.bit_length_list_to_tree(bit_list_distance, distance_tree_alphabet);
+        try self.inflate_block_data(bit_reader, &literal_length_tree, &distance_tree, ret);
+        literal_length_tree.deinit();
+        distance_tree.deinit();
+    }
+    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) void {
+        var trees = try self.decode_trees(bit_reader);
+        try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
+        trees.literal_length_tree.deinit();
+        trees.distance_tree.deinit();
+    }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.ByteStream{};
