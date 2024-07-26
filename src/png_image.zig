@@ -204,7 +204,6 @@ pub const PNGImage = struct {
         var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self._allocator.*);
         while (BFINAL == 0) {
             BFINAL = try bit_reader.read_bit();
-            _ = try bit_reader.read_bit();
             const BTYPE = try bit_reader.read_bits(2);
             std.debug.print("BFINAL {d}, BTYPE {d}\n", .{ BFINAL, BTYPE });
             if (BTYPE == 0) {
@@ -240,6 +239,7 @@ pub const PNGImage = struct {
     fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) !*utils.HuffmanTree(u16) {
         const MAX_BITS = try utils.max_array(u16, bit_length_list);
         var bl_count: []u16 = try self._allocator.alloc(u16, MAX_BITS + 1);
+        defer self._allocator.free(bl_count);
         for (0..bl_count.len) |i| {
             var sum: u16 = 0;
             for (bit_length_list) |j| {
@@ -258,8 +258,8 @@ pub const PNGImage = struct {
         }
         var tree: *utils.HuffmanTree(u16) = try self._allocator.create(utils.HuffmanTree(u16));
         tree.* = try utils.HuffmanTree(u16).init(self._allocator.*);
-        const max_len = @max(alphabet.len, bit_length_list.len);
-        for (0..max_len) |i| {
+        const min_len = @min(alphabet.len, bit_length_list.len);
+        for (0..min_len) |i| {
             if (bit_length_list[i] != 0) {
                 try tree.insert(next_code.items[bit_length_list[i]], bit_length_list[i], alphabet[i]);
                 next_code.items[bit_length_list[i]] += 1;
@@ -276,9 +276,10 @@ pub const PNGImage = struct {
                 return;
             } else {
                 symbol -= 257;
-                const length = @as(u16, @intCast(try bit_reader.read_bits(LengthExtraBits[symbol] + LengthBase[symbol])));
+                const length = @as(u16, @intCast(try bit_reader.read_bits(LengthExtraBits[symbol]) + LengthBase[symbol]));
                 const distance_symbol = try self.decode_symbol(bit_reader, distance_tree);
-                const distance = @as(u16, @intCast(try bit_reader.read_bits(DistanceExtraBits[distance_symbol] + DistanceBase[distance_symbol])));
+                const distance = @as(u16, @intCast(try bit_reader.read_bits(DistanceExtraBits[distance_symbol]) + DistanceBase[distance_symbol]));
+                //std.debug.print("ret.items.len {d}, distance {d}\n", .{ ret.items.len, distance });
                 for (0..length) |_| {
                     try ret.append(ret.items[ret.items.len - distance]);
                 }
@@ -324,6 +325,8 @@ pub const PNGImage = struct {
                 return PNGImage_Error.INVALID_HUFFMAN_SYMBOL;
             }
         }
+        code_length_tree.deinit();
+        self._allocator.destroy(code_length_tree);
         var literal_length_alphabet: [286]u16 = [_]u16{0} ** 286;
         for (0..literal_length_alphabet.len) |i| {
             literal_length_alphabet[i] = @as(u16, @intCast(i));
@@ -365,14 +368,18 @@ pub const PNGImage = struct {
         var distance_tree = try self.bit_length_list_to_tree(&bit_list_distance, &distance_tree_alphabet);
         try self.inflate_block_data(bit_reader, literal_length_tree, distance_tree, ret);
         literal_length_tree.deinit();
+        self._allocator.destroy(literal_length_tree);
         distance_tree.deinit();
+        self._allocator.destroy(distance_tree);
     }
     fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) !void {
         std.debug.print("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
         trees.literal_length_tree.deinit();
+        self._allocator.destroy(trees.literal_length_tree);
         trees.distance_tree.deinit();
+        self._allocator.destroy(trees.distance_tree);
     }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
@@ -464,26 +471,26 @@ pub const PNGImage = struct {
     }
 };
 
-test "BASIC" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
-    var image = PNGImage{};
-    try image.load_PNG("basn6a08.png", &allocator);
-    //try image.write_BMP("shield.png");
-    image.deinit();
-    if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
-    }
-}
-
-// test "SHIELD" {
+// test "BASIC" {
 //     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 //     var allocator = gpa.allocator();
 //     var image = PNGImage{};
-//     try image.load_PNG("shield.png", &allocator);
+//     try image.load_PNG("basn6a08.png", &allocator);
 //     //try image.write_BMP("shield.png");
 //     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
 // }
+
+test "SHIELD" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("shield.png", &allocator);
+    //try image.write_BMP("shield.png");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}

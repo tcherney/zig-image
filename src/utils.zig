@@ -61,13 +61,13 @@ pub fn HuffmanTree(comptime T: type) type {
             self.deinit_node(self.root.right);
         }
         pub fn insert(self: *Self, codeword: T, n: T, symbol: T) std.mem.Allocator.Error!void {
-            std.debug.print("inserting {b} with length {d} and symbol {d}\n", .{ codeword, n, symbol });
+            //std.debug.print("inserting {b} with length {d} and symbol {d}\n", .{ codeword, n, symbol });
             var node: *Node = &self.root;
             var i = n - 1;
             var next_node: ?*Node = null;
             while (i >= 0) : (i -= 1) {
                 const b = codeword & std.math.shl(T, 1, i);
-                std.debug.print("b {d}\n", .{b});
+                //std.debug.print("b {d}\n", .{b});
                 if (b != 0) {
                     if (node.right) |right| {
                         next_node = right;
@@ -224,6 +224,7 @@ pub fn BitReader(comptime T: type) type {
             return ret_int;
         }
         pub fn read_bit(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
+            var bit: u32 = undefined;
             if (self.next_bit == 0) {
                 if (!self.has_bits()) {
                     return BitReader_Error.INVALID_READ;
@@ -248,16 +249,24 @@ pub fn BitReader(comptime T: type) type {
                     }
                 }
             }
-            const bit: u32 = (self.next_byte >> @as(u5, @intCast(7 - self.next_bit))) & 1;
+            if (std.mem.eql(u8, @typeName(T), "png_image.PNGImage")) {
+                bit = (self.next_byte >> @as(u5, @intCast(self.next_bit))) & 1;
+            } else {
+                bit = (self.next_byte >> @as(u5, @intCast(7 - self.next_bit))) & 1;
+            }
+
             self.next_bit = (self.next_bit + 1) % 8;
             return bit;
         }
-        //TODO swap order for PNGs
         pub fn read_bits(self: *Self, length: u32) (BitReader_Error || ByteStream_Error)!u32 {
             var bits: u32 = 0;
-            for (0..length) |_| {
+            for (0..length) |i| {
                 const bit = try self.read_bit();
-                bits = (bits << 1) | bit;
+                if (std.mem.eql(u8, @typeName(T), "png_image.PNGImage")) {
+                    bits |= bit << @as(u5, @intCast(i));
+                } else {
+                    bits = (bits << 1) | bit;
+                }
             }
             return bits;
         }
@@ -270,12 +279,14 @@ pub fn BitReader(comptime T: type) type {
 test "HUFFMAN_TREE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var t = try HuffmanTree(u32).init(allocator);
+    var t = try allocator.create(HuffmanTree(u32));
+    t.* = try HuffmanTree(u32).init(allocator);
     try t.insert(1, 2, 'A');
     try t.insert(1, 1, 'B');
     try t.insert(0, 3, 'C');
     try t.insert(1, 3, 'D');
     t.deinit();
+    allocator.destroy(t);
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
