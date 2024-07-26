@@ -1,6 +1,12 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 
+pub const Pixel = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
 pub const Max_error = error{
     NO_ITEMS,
 };
@@ -246,6 +252,7 @@ pub fn BitReader(comptime T: type) type {
             self.next_bit = (self.next_bit + 1) % 8;
             return bit;
         }
+        //TODO swap order for PNGs
         pub fn read_bits(self: *Self, length: u32) (BitReader_Error || ByteStream_Error)!u32 {
             var bits: u32 = 0;
             for (0..length) |_| {

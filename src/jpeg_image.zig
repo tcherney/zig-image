@@ -156,12 +156,6 @@ const QuantizationTable = struct {
     }
 };
 
-const Pixel = struct {
-    r: u8,
-    g: u8,
-    b: u8,
-};
-
 const ColorComponent = struct {
     horizontal_sampling_factor: u8 = 1,
     vertical_sampling_factor: u8 = 1,
@@ -207,7 +201,7 @@ fn Block(comptime T: type) type {
 }
 
 pub const JPEGImage = struct {
-    data: ?std.ArrayList(Pixel) = null,
+    data: ?std.ArrayList(utils.Pixel) = null,
     _quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
     height: u32 = 0,
     width: u32 = 0,
@@ -592,7 +586,7 @@ pub const JPEGImage = struct {
         try self._read_scans(bit_reader);
     }
     pub fn deinit(self: *JPEGImage) void {
-        std.ArrayList(Pixel).deinit(self.data.?);
+        std.ArrayList(utils.Pixel).deinit(self.data.?);
     }
     pub fn print(self: *JPEGImage) void {
         std.debug.print("Quant Tables:\n", .{});
@@ -1113,7 +1107,7 @@ pub const JPEGImage = struct {
         }
     }
     fn _gen_rgb_data(self: *JPEGImage) !void {
-        self.data = std.ArrayList(Pixel).init(self._allocator.*);
+        self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
         defer self._allocator.free(self._blocks);
         try self._de_quant_data();
         self._inverse_dct();
@@ -1132,7 +1126,7 @@ pub const JPEGImage = struct {
                 //std.debug.print("writing index {d}\n", .{block_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
                 //std.debug.print("pixel ({d}) ({d}) ({d})\n", .{ blocks[block_index].r[pixel_index], blocks[block_index].g[pixel_index], blocks[block_index].b[pixel_index] });
-                try self.data.?.append(Pixel{
+                try self.data.?.append(utils.Pixel{
                     .r = @truncate(@as(u32, @bitCast(self._blocks[block_index].r[pixel_index]))),
                     .g = @truncate(@as(u32, @bitCast(self._blocks[block_index].g[pixel_index]))),
                     .b = @truncate(@as(u32, @bitCast(self._blocks[block_index].b[pixel_index]))),
@@ -1191,7 +1185,7 @@ pub const JPEGImage = struct {
         var j: usize = 0;
         while (i < self.height) {
             while (j < self.width) {
-                const pixel: *Pixel = &self.data.?.items[i * self.width + j];
+                const pixel: *utils.Pixel = &self.data.?.items[i * self.width + j];
                 buffer_pos[0] = pixel.b;
                 buffer_pos.ptr += 1;
                 buffer_pos[0] = pixel.g;
