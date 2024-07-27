@@ -1114,9 +1114,8 @@ pub const JPEGImage = struct {
         self._ycb_rgb();
 
         // store color data to be used later in either writing to another file or direct access in code
-        var i: usize = self.height;
-        while (i >= 0) {
-            i -= 1;
+        var i: usize = 0;
+        while (i < self.height) {
             const block_row: u32 = @as(u32, @intCast(i)) / 8;
             const pixel_row: u32 = @as(u32, @intCast(i)) % 8;
             for (0..self.width) |j| {
@@ -1132,7 +1131,7 @@ pub const JPEGImage = struct {
                     .b = @truncate(@as(u32, @bitCast(self._blocks[block_index].b[pixel_index]))),
                 });
             }
-            if (i == 0) break;
+            i += 1;
         }
         std.debug.print("number of pixels {d}\n", .{self.data.?.items.len});
     }
@@ -1181,9 +1180,9 @@ pub const JPEGImage = struct {
         try self._little_endian(&image_file, 2, self.height);
         try self._little_endian(&image_file, 2, 1);
         try self._little_endian(&image_file, 2, 24);
-        var i: usize = 0;
+        var i: usize = self.height - 1;
         var j: usize = 0;
-        while (i < self.height) {
+        while (i >= 0) {
             while (j < self.width) {
                 const pixel: *utils.Pixel = &self.data.?.items[i * self.width + j];
                 buffer_pos[0] = pixel.b;
@@ -1199,7 +1198,8 @@ pub const JPEGImage = struct {
                 buffer_pos.ptr += 1;
             }
             j = 0;
-            i += 1;
+            if (i == 0) break;
+            i -= 1;
         }
         try image_file.writeAll(buffer);
     }

@@ -1,6 +1,8 @@
 //https://www.w3.org/TR/PNG-Structure.html
 //https://iter.ca/post/png/
 //https://pyokagan.name/blog/2019-10-18-zlibinflate/
+//https://datatracker.ietf.org/doc/html/rfc1951
+//https://github.com/madler/zlib/blob/master/contrib/puff/puff.c
 const std = @import("std");
 const utils = @import("utils.zig");
 
@@ -13,6 +15,7 @@ pub const PNGImage_Error = error{
     INVALID_PRESET_DICT,
     INVALID_BTYPE,
     INVALID_HUFFMAN_SYMBOL,
+    INVALID_FILTER,
 };
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -381,6 +384,40 @@ pub const PNGImage = struct {
         trees.distance_tree.deinit();
         self._allocator.destroy(trees.distance_tree);
     }
+    fn unfilter(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
+        self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
+        var i: usize = 0;
+        for (0..self.height) |_| {
+            const filter_type: u8 = ret.items[i];
+            std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+            i += 1;
+            for (0..self.width) |_| {
+                // do nothing
+                if (filter_type == 0) {
+                    // next 3 bytes are rgb followed by alpha
+                    if (self.color_type == 6) {
+                        try self.data.append(utils.Pixel{
+                            .r = ret.items[i],
+                            .g = ret.items[i + 1],
+                            .b = ret.items[i + 2],
+                        });
+                        i += 4;
+                    }
+                    // next 3 bytes are rgb
+                    else if (self.color_type == 2) {
+                        try self.data.append(utils.Pixel{
+                            .r = ret.items[i],
+                            .g = ret.items[i + 1],
+                            .b = ret.items[i + 2],
+                        });
+                        i += 3;
+                    }
+                } else {
+                    return PNGImage_Error.INVALID_FILTER;
+                }
+            }
+        }
+    }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.ByteStream{};
@@ -389,19 +426,11 @@ pub const PNGImage = struct {
         try self.read_sig();
         try self.read_chucks();
         try self.handle_chunks();
-        const ret: std.ArrayList(u8) = try self.decompress();
-        std.debug.print("num pixels {d}\n", .{ret.items.len});
-        self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
-        var i: usize = 0;
-        while (i < ret.items.len) {
-            try self.data.append(utils.Pixel{
-                .r = ret.items[i],
-                .g = ret.items[i + 1],
-                .b = ret.items[i + 2],
-            });
-            i += 3;
-        }
-
+        var ret: std.ArrayList(u8) = try self.decompress();
+        std.debug.print("filter type sanity {d}\n", .{ret.items[0]});
+        std.debug.print("uncompressed bytes {d}\n", .{ret.items.len});
+        try self.unfilter(&ret);
+        std.debug.print("num pixels {d}\n", .{self.data.items.len});
         defer std.ArrayList(u8).deinit(ret);
     }
     fn _little_endian(_: *PNGImage, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
@@ -415,50 +444,51 @@ pub const PNGImage = struct {
             else => unreachable,
         }
     }
-    // pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
-    //     // if (!self._loaded) {
-    //     //     return JPEGImage_Error.NOT_LOADED;
-    //     // }
-    //     const image_file = try std.fs.cwd().createFile(file_name, .{});
-    //     defer image_file.close();
-    //     try image_file.writer().writeByte('B');
-    //     try image_file.writer().writeByte('M');
-    //     const padding_size: u32 = self.width % 4;
-    //     const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
+    pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
+        // if (!self._loaded) {
+        //     return JPEGImage_Error.NOT_LOADED;
+        // }
+        const image_file = try std.fs.cwd().createFile(file_name, .{});
+        defer image_file.close();
+        try image_file.writer().writeByte('B');
+        try image_file.writer().writeByte('M');
+        const padding_size: u32 = self.width % 4;
+        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
 
-    //     var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
-    //     var buffer_pos = buffer[0..buffer.len];
-    //     defer self._allocator.free(buffer);
-    //     try self._little_endian(&image_file, 4, size);
-    //     try self._little_endian(&image_file, 4, 0);
-    //     try self._little_endian(&image_file, 4, 0x1A);
-    //     try self._little_endian(&image_file, 4, 12);
-    //     try self._little_endian(&image_file, 2, self.width);
-    //     try self._little_endian(&image_file, 2, self.height);
-    //     try self._little_endian(&image_file, 2, 1);
-    //     try self._little_endian(&image_file, 2, 24);
-    //     var i: usize = 0;
-    //     var j: usize = 0;
-    //     while (i < self.height) {
-    //         while (j < self.width) {
-    //             const pixel: *Pixel = &self.data.?.items[i * self.width + j];
-    //             buffer_pos[0] = pixel.b;
-    //             buffer_pos.ptr += 1;
-    //             buffer_pos[0] = pixel.g;
-    //             buffer_pos.ptr += 1;
-    //             buffer_pos[0] = pixel.r;
-    //             buffer_pos.ptr += 1;
-    //             j += 1;
-    //         }
-    //         for (0..padding_size) |_| {
-    //             buffer_pos[0] = 0;
-    //             buffer_pos.ptr += 1;
-    //         }
-    //         j = 0;
-    //         i += 1;
-    //     }
-    //     try image_file.writeAll(buffer);
-    // }
+        var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
+        var buffer_pos = buffer[0..buffer.len];
+        defer self._allocator.free(buffer);
+        try self._little_endian(&image_file, 4, size);
+        try self._little_endian(&image_file, 4, 0);
+        try self._little_endian(&image_file, 4, 0x1A);
+        try self._little_endian(&image_file, 4, 12);
+        try self._little_endian(&image_file, 2, self.width);
+        try self._little_endian(&image_file, 2, self.height);
+        try self._little_endian(&image_file, 2, 1);
+        try self._little_endian(&image_file, 2, 24);
+        var i: usize = self.height - 1;
+        var j: usize = 0;
+        while (i >= 0) {
+            while (j < self.width) {
+                const pixel: *utils.Pixel = &self.data.items[i * self.width + j];
+                buffer_pos[0] = pixel.b;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.g;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.r;
+                buffer_pos.ptr += 1;
+                j += 1;
+            }
+            for (0..padding_size) |_| {
+                buffer_pos[0] = 0;
+                buffer_pos.ptr += 1;
+            }
+            j = 0;
+            if (i == 0) break;
+            i -= 1;
+        }
+        try image_file.writeAll(buffer);
+    }
 
     pub fn deinit(self: *PNGImage) void {
         self._file_data.deinit();
@@ -476,19 +506,31 @@ pub const PNGImage = struct {
 //     var allocator = gpa.allocator();
 //     var image = PNGImage{};
 //     try image.load_PNG("basn6a08.png", &allocator);
-//     //try image.write_BMP("shield.png");
+//     try image.write_BMP("basn6a08.bmp");
 //     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
 //     }
 // }
 
+test "BASIC NO FILTER" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("f00n2c08.png", &allocator);
+    try image.write_BMP("f00n2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
 test "SHIELD" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load_PNG("shield.png", &allocator);
-    //try image.write_BMP("shield.png");
+    try image.write_BMP("shield.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
