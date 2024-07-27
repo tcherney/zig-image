@@ -397,12 +397,12 @@ pub const PNGImage = struct {
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
         self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
         var i: usize = 0;
-        for (0..self.height) |y| {
+        for (0..self.height) |_| {
             const filter_type: u8 = ret.items[i];
             std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
             i += 1;
             const num_bytes_per_pixel: usize = if (self.color_type == 2) 3 else 4;
-            self.filter_scanline(filter_type, ret.items[i .. self.width * num_bytes_per_pixel * (y + 1)], num_bytes_per_pixel);
+            self.filter_scanline(filter_type, ret.items[i .. (self.width * num_bytes_per_pixel) + i], num_bytes_per_pixel);
             for (0..self.width) |_| {
                 // next 3 bytes are rgb followed by alpha
                 if (self.color_type == 6) {
