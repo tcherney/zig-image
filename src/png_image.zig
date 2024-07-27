@@ -384,36 +384,43 @@ pub const PNGImage = struct {
         trees.distance_tree.deinit();
         self._allocator.destroy(trees.distance_tree);
     }
-    fn unfilter(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
+    fn filter_scanline(_: *PNGImage, filter_type: u8, scanline: []u8, num_bytes_per_pixel: usize) void {
+        if (filter_type == 0) return;
+        if (filter_type == 1) {
+            for (0..scanline.len) |i| {
+                if (i >= num_bytes_per_pixel) {
+                    scanline[i] = @as(u8, @intCast((@as(u16, @intCast(scanline[i])) + @as(u16, @intCast(scanline[i - num_bytes_per_pixel]))) % 256));
+                }
+            }
+        }
+    }
+    fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
         self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
         var i: usize = 0;
-        for (0..self.height) |_| {
+        for (0..self.height) |y| {
             const filter_type: u8 = ret.items[i];
             std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
             i += 1;
+            const num_bytes_per_pixel: usize = if (self.color_type == 2) 3 else 4;
+            self.filter_scanline(filter_type, ret.items[i .. self.width * num_bytes_per_pixel * (y + 1)], num_bytes_per_pixel);
             for (0..self.width) |_| {
-                // do nothing
-                if (filter_type == 0) {
-                    // next 3 bytes are rgb followed by alpha
-                    if (self.color_type == 6) {
-                        try self.data.append(utils.Pixel{
-                            .r = ret.items[i],
-                            .g = ret.items[i + 1],
-                            .b = ret.items[i + 2],
-                        });
-                        i += 4;
-                    }
-                    // next 3 bytes are rgb
-                    else if (self.color_type == 2) {
-                        try self.data.append(utils.Pixel{
-                            .r = ret.items[i],
-                            .g = ret.items[i + 1],
-                            .b = ret.items[i + 2],
-                        });
-                        i += 3;
-                    }
-                } else {
-                    return PNGImage_Error.INVALID_FILTER;
+                // next 3 bytes are rgb followed by alpha
+                if (self.color_type == 6) {
+                    try self.data.append(utils.Pixel{
+                        .r = ret.items[i],
+                        .g = ret.items[i + 1],
+                        .b = ret.items[i + 2],
+                    });
+                    i += 4;
+                }
+                // next 3 bytes are rgb
+                else if (self.color_type == 2) {
+                    try self.data.append(utils.Pixel{
+                        .r = ret.items[i],
+                        .g = ret.items[i + 1],
+                        .b = ret.items[i + 2],
+                    });
+                    i += 3;
                 }
             }
         }
@@ -429,7 +436,7 @@ pub const PNGImage = struct {
         var ret: std.ArrayList(u8) = try self.decompress();
         std.debug.print("filter type sanity {d}\n", .{ret.items[0]});
         std.debug.print("uncompressed bytes {d}\n", .{ret.items.len});
-        try self.unfilter(&ret);
+        try self.data_stream_to_rgb(&ret);
         std.debug.print("num pixels {d}\n", .{self.data.items.len});
         defer std.ArrayList(u8).deinit(ret);
     }
@@ -513,26 +520,38 @@ pub const PNGImage = struct {
 //     }
 // }
 
-test "BASIC NO FILTER" {
+// test "BASIC NO FILTER" {
+//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//     var allocator = gpa.allocator();
+//     var image = PNGImage{};
+//     try image.load_PNG("f00n2c08.png", &allocator);
+//     try image.write_BMP("f00n2c08.bmp");
+//     image.deinit();
+//     if (gpa.deinit() == .leak) {
+//         std.debug.print("Leaked!\n", .{});
+//     }
+// }
+
+test "BASIC SUB FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load_PNG("f00n2c08.png", &allocator);
-    try image.write_BMP("f00n2c08.bmp");
+    try image.load_PNG("f01n2c08.png", &allocator);
+    try image.write_BMP("f01n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
 }
 
-test "SHIELD" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
-    var image = PNGImage{};
-    try image.load_PNG("shield.png", &allocator);
-    try image.write_BMP("shield.bmp");
-    image.deinit();
-    if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
-    }
-}
+// test "SHIELD" {
+//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//     var allocator = gpa.allocator();
+//     var image = PNGImage{};
+//     try image.load_PNG("shield.png", &allocator);
+//     try image.write_BMP("shield.bmp");
+//     image.deinit();
+//     if (gpa.deinit() == .leak) {
+//         std.debug.print("Leaked!\n", .{});
+//     }
+// }
