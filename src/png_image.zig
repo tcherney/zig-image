@@ -346,7 +346,7 @@ pub const PNGImage = struct {
         }
         code_length_tree.deinit();
         self._allocator.destroy(code_length_tree);
-        var literal_length_alphabet: [286]u16 = [_]u16{0} ** 286;
+        var literal_length_alphabet: [288]u16 = [_]u16{0} ** 288;
         for (0..literal_length_alphabet.len) |i| {
             literal_length_alphabet[i] = @as(u16, @intCast(i));
         }
@@ -374,7 +374,7 @@ pub const PNGImage = struct {
         for (280..288) |_| {
             try bit_length_list.append(8);
         }
-        var literal_length_alphabet: [286]u16 = [_]u16{0} ** 286;
+        var literal_length_alphabet: [288]u16 = [_]u16{0} ** 288;
         for (0..literal_length_alphabet.len) |i| {
             literal_length_alphabet[i] = @as(u16, @intCast(i));
         }
@@ -451,11 +451,192 @@ pub const PNGImage = struct {
             }
         }
     }
+    fn add_filtered_pixel(self: *PNGImage, ret: *std.ArrayList(u8), buffer_index: *usize, bit_index: *u3, data_index: usize, num_bytes_per_pixel: usize) (std.mem.Allocator.Error || PNGImage_Error)!void {
+        switch (self.color_type) {
+            0 => {
+                switch (self.bit_depth) {
+                    1 => {
+                        const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        if (bit_index.* == 0) {
+                            bit_index.* = 7;
+                            buffer_index.* += num_bytes_per_pixel;
+                        } else {
+                            bit_index.* -= 1;
+                        }
+                    },
+                    2 => {
+                        const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
+                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 3.0)));
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        if (bit_index.* == 1) {
+                            bit_index.* = 7;
+                            buffer_index.* += num_bytes_per_pixel;
+                        } else {
+                            bit_index.* -= 2;
+                        }
+                    },
+                    4 => {
+                        const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
+                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 15.0)));
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        if (bit_index.* == 3) {
+                            bit_index.* = 7;
+                            buffer_index.* += num_bytes_per_pixel;
+                        } else {
+                            bit_index.* -= 4;
+                        }
+                    },
+                    8 => {
+                        const rgb: u8 = ret.items[buffer_index.*];
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    16 => {
+                        const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
+                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    else => unreachable,
+                }
+            },
+            2 => {
+                switch (self.bit_depth) {
+                    8 => {
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = ret.items[buffer_index.*],
+                            .g = ret.items[buffer_index.* + 1],
+                            .b = ret.items[buffer_index.* + 2],
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    16 => {
+                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
+                            .r = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1],
+                            .g = (@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3],
+                            .b = (@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5],
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    else => unreachable,
+                }
+            },
+            3 => {
+                switch (self.bit_depth) {
+                    1 => {},
+                    2 => {},
+                    4 => {},
+                    8 => {},
+                    else => unreachable,
+                }
+            },
+            4 => {
+                switch (self.bit_depth) {
+                    8 => {
+                        const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]));
+                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        const bkgd = max_pixel;
+                        var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
+                        rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    16 => {
+                        // next 3 bytes are rgb followed by alpha
+                        const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
+                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        const bkgd = max_pixel;
+                        var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
+                        rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
+                            .r = rgb,
+                            .g = rgb,
+                            .b = rgb,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    else => unreachable,
+                }
+            },
+            6 => {
+                switch (self.bit_depth) {
+                    8 => {
+                        // next 3 bytes are rgb followed by alpha
+                        const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 3]));
+                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        const bkgd = max_pixel;
+                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
+                        var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]))));
+                        var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 2]))));
+                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                            .r = r,
+                            .g = g,
+                            .b = b,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    16 => {
+                        //TODO figure out scuffed corner in 16 bit alpha images
+                        // next 3 bytes are rgb followed by alpha
+                        const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
+                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        const bkgd = max_pixel;
+                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        var r: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
+                        var g: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]))));
+                        var b: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5]))));
+                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
+                            .r = r,
+                            .g = g,
+                            .b = b,
+                        } };
+                        buffer_index.* += num_bytes_per_pixel;
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
+        }
+    }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
-        self.data = std.ArrayList(PixelType).init(self._allocator.*);
-        var i: usize = 0;
+        self.data = try std.ArrayList(PixelType).initCapacity(self._allocator.*, self.height * self.width);
+        self.data.expandToCapacity();
+        var buffer_index: usize = 0;
         var previous_index: usize = 0;
-        var num_bytes_per_pixel: usize = 3;
+        var num_bytes_per_pixel: usize = undefined;
         switch (self.color_type) {
             0 => num_bytes_per_pixel = @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(self.bit_depth)) / 8.0))),
             2 => num_bytes_per_pixel = 3 * (self.bit_depth / 8),
@@ -464,55 +645,26 @@ pub const PNGImage = struct {
             6 => num_bytes_per_pixel = 4 * (self.bit_depth / 8),
             else => return PNGImage_Error.INVALID_COLOR_TYPE,
         }
+        const scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
         std.debug.print("bytes per pixel {d}\n", .{num_bytes_per_pixel});
+        // filter pass
         for (0..self.height) |_| {
-            const filter_type: u8 = ret.items[i];
+            const filter_type: u8 = ret.items[buffer_index];
             //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
-            i += 1;
-            const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. (self.width * num_bytes_per_pixel) + previous_index] else null;
-            previous_index = i;
-            self.filter_scanline(filter_type, ret.items[i .. (self.width * num_bytes_per_pixel) + i], previous_scanline, num_bytes_per_pixel);
+            buffer_index += 1;
+            const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
+            previous_index = buffer_index;
+            self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
+            buffer_index += scanline_width;
+        }
+        buffer_index = 0;
+        var data_index: usize = 0;
+        for (0..self.height) |_| {
+            buffer_index += 1;
+            var bit_index: u3 = 7;
             for (0..self.width) |_| {
-                if (self.bit_depth == 8) {
-                    // next 3 bytes are rgb followed by alpha
-                    if (self.color_type == 6) {
-                        const bkgd = 255;
-                        const alpha = @as(f32, @floatFromInt(ret.items[i + 3]));
-                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
-                        var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i]))));
-                        var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i + 1]))));
-                        var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i + 2]))));
-                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
-                        r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        try self.data.append(PixelType{ .eight = utils.Pixel(u8){
-                            .r = r,
-                            .g = g,
-                            .b = b,
-                        } });
-                        i += 4;
-                    }
-                    // next 3 bytes are rgb
-                    else if (self.color_type == 2) {
-                        try self.data.append(PixelType{ .eight = utils.Pixel(u8){
-                            .r = ret.items[i],
-                            .g = ret.items[i + 1],
-                            .b = ret.items[i + 2],
-                        } });
-                        i += 3;
-                    }
-                } else if (self.bit_depth == 16) {
-                    if (self.color_type == 2) {
-                        try self.data.append(PixelType{ .sixteen = utils.Pixel(u16){
-                            .r = (@as(u16, @intCast(ret.items[i + 1])) << 8) | ret.items[i],
-                            .g = (@as(u16, @intCast(ret.items[i + 3])) << 8) | ret.items[i + 2],
-                            .b = (@as(u16, @intCast(ret.items[i + 5])) << 8) | ret.items[i + 4],
-                        } });
-                        i += 6;
-                    }
-                }
+                try self.add_filtered_pixel(ret, &buffer_index, &bit_index, data_index, num_bytes_per_pixel);
+                data_index += 1;
             }
         }
     }
@@ -581,11 +733,11 @@ pub const PNGImage = struct {
                         j += 1;
                     },
                     .sixteen => |pix| {
-                        buffer_pos[0] = @as(u8, @truncate(pix.b));
+                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.b)) * (255.0 / 65535.0)));
                         buffer_pos.ptr += 1;
-                        buffer_pos[0] = @as(u8, @truncate(pix.g));
+                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.g)) * (255.0 / 65535.0)));
                         buffer_pos.ptr += 1;
-                        buffer_pos[0] = @as(u8, @truncate(pix.r));
+                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.r)) * (255.0 / 65535.0)));
                         buffer_pos.ptr += 1;
                         j += 1;
                     },
@@ -613,12 +765,24 @@ pub const PNGImage = struct {
     }
 };
 
-test "BASIC" {
+test "BASIC 8" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load_PNG("tests/png/basic/basn6a08.png", &allocator);
-    try image.write_BMP("basn6a08.bmp");
+    try image.load_PNG("tests/png/basic/basn2c08.png", &allocator);
+    try image.write_BMP("basn2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 16" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn2c16.png", &allocator);
+    try image.write_BMP("basn2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
@@ -685,26 +849,122 @@ test "SHIELD" {
     }
 }
 
-test "BASIC 16 BIT" {
+test "BASIC 8 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load_PNG("tests/png/basic/basn2c16.png", &allocator);
-    try image.write_BMP("basn2c16.bmp");
+    try image.load_PNG("tests/png/basic/basn6a08.png", &allocator);
+    try image.write_BMP("basn6a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
     }
 }
 
-// test "BASIC 16 BIT ALPHA" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = PNGImage{};
-//     try image.load_PNG("tests/png/basic/basn6a16.png", &allocator);
-//     try image.write_BMP("basn6a16.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "BASIC 16 ALPHA" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn6a16.png", &allocator);
+    try image.write_BMP("basn6a16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn0g01.png", &allocator);
+    try image.write_BMP("basn0g01.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 2" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn0g02.png", &allocator);
+    try image.write_BMP("basn0g02.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 4" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn0g04.png", &allocator);
+    try image.write_BMP("basn0g04.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 8" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn0g08.png", &allocator);
+    try image.write_BMP("basn0g08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 16" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn0g16.png", &allocator);
+    try image.write_BMP("basn0g16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 8 ALPHA" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn4a08.png", &allocator);
+    try image.write_BMP("basn4a08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "GRAY 16 ALPHA" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn4a16.png", &allocator);
+    try image.write_BMP("basn4a16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi0g01.png", &allocator);
+    try image.write_BMP("basi0g01.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
