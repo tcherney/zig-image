@@ -1,11 +1,13 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 
-pub const Pixel = struct {
-    r: u8,
-    g: u8,
-    b: u8,
-};
+pub fn Pixel(comptime T: type) type {
+    return struct {
+        r: T,
+        g: T,
+        b: T,
+    };
+}
 
 pub const Max_error = error{
     NO_ITEMS,
@@ -145,136 +147,128 @@ pub const BitReader_Error = error{
     INVALID_ARGS,
 };
 
-pub fn BitReader(comptime T: type) type {
-    return struct {
-        next_byte: u32 = 0,
-        next_bit: u32 = 0,
-        _byte_stream: ByteStream = undefined,
-        const Self = @This();
-        pub fn init(self: *Self, data: []u8) void {
-            self._byte_stream = ByteStream{};
-            self._byte_stream.init(data);
+pub const BitReader = struct {
+    next_byte: u32 = 0,
+    next_bit: u32 = 0,
+    _byte_stream: ByteStream = undefined,
+    _jpeg_filter: bool = false,
+    _little_endian: bool = false,
+    _reverse_bit_order: bool = false,
+    const Self = @This();
+    pub fn init(self: *Self, data: []u8, options: anytype) !void {
+        self._byte_stream = ByteStream{};
+        self._byte_stream.init(data);
+        try self.set_options(options);
+    }
+    pub fn init_file(self: *Self, file_name: []const u8, allocator: *std.mem.Allocator, options: anytype) !void {
+        self._byte_stream = ByteStream{};
+        try self._byte_stream.init_file(file_name, allocator);
+        try self.set_options(options);
+    }
+    pub fn set_options(self: *Self, options: anytype) BitReader_Error!void {
+        const ArgsType = @TypeOf(options);
+        const args_type_info = @typeInfo(ArgsType);
+        if (args_type_info != .Struct) {
+            return BitReader_Error.INVALID_ARGS;
         }
-        pub fn init_file(self: *Self, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-            self._byte_stream = ByteStream{};
-            try self._byte_stream.init_file(file_name, allocator);
+        const fields_info = args_type_info.Struct.fields;
+        if (fields_info.len >= 3) {
+            return BitReader_Error.INVALID_ARGS;
         }
-        pub fn deinit(self: *Self) void {
-            self._byte_stream.deinit();
-        }
-        pub fn has_bits(self: *Self) bool {
-            return if (self._byte_stream.getPos() != self._byte_stream.getEndPos()) true else false;
-        }
-        pub fn read_byte(self: *Self) ByteStream_Error!u8 {
-            self.next_bit = 0;
-            return try self._byte_stream.readByte();
-        }
-        pub fn read_word(self: *Self, args: anytype) (BitReader_Error || ByteStream_Error)!u16 {
-            const ArgsType = @TypeOf(args);
-            const args_type_info = @typeInfo(ArgsType);
-            if (args_type_info != .Struct) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            const fields_info = args_type_info.Struct.fields;
-            if (fields_info.len != 0 and fields_info.len != 1) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            if (fields_info.len != 0 and !std.mem.eql(u8, fields_info[0].name, "little_endian")) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            const little_endian: bool = if (fields_info.len == 1) @field(args, "little_endian") else false;
-            self.next_bit = 0;
-            var ret_word: u16 = @as(u16, try self._byte_stream.readByte());
-            if (little_endian) {
-                ret_word |= @as(u16, @intCast(try self._byte_stream.readByte())) << 8;
-            } else {
-                ret_word <<= 8;
-                ret_word += try self._byte_stream.readByte();
-            }
 
-            return ret_word;
+        self._little_endian = if (@hasField(ArgsType, "little_endian")) @field(options, "little_endian") else false;
+        self._jpeg_filter = if (@hasField(ArgsType, "jpeg_filter")) @field(options, "jpeg_filter") else false;
+        self._reverse_bit_order = if (@hasField(ArgsType, "reverse_bit_order")) @field(options, "reverse_bit_order") else false;
+    }
+    pub fn deinit(self: *Self) void {
+        self._byte_stream.deinit();
+    }
+    pub fn has_bits(self: *Self) bool {
+        return if (self._byte_stream.getPos() != self._byte_stream.getEndPos()) true else false;
+    }
+    pub fn read_byte(self: *Self) ByteStream_Error!u8 {
+        self.next_bit = 0;
+        return try self._byte_stream.readByte();
+    }
+    pub fn read_word(self: *Self) (BitReader_Error || ByteStream_Error)!u16 {
+        self.next_bit = 0;
+        var ret_word: u16 = @as(u16, try self._byte_stream.readByte());
+        if (self._little_endian) {
+            ret_word |= @as(u16, @intCast(try self._byte_stream.readByte())) << 8;
+        } else {
+            ret_word <<= 8;
+            ret_word += try self._byte_stream.readByte();
         }
-        pub fn read_int(self: *Self, args: anytype) (BitReader_Error || ByteStream_Error)!u32 {
-            const ArgsType = @TypeOf(args);
-            const args_type_info = @typeInfo(ArgsType);
-            if (args_type_info != .Struct) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            const fields_info = args_type_info.Struct.fields;
-            if (fields_info.len != 0 and fields_info.len != 1) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            if (fields_info.len != 0 and !std.mem.eql(u8, fields_info[0].name, "little_endian")) {
-                return BitReader_Error.INVALID_ARGS;
-            }
-            const little_endian: bool = if (fields_info.len == 1) @field(args, "little_endian") else false;
-            self.next_bit = 0;
-            var ret_int: u32 = @as(u32, try self._byte_stream.readByte());
-            if (little_endian) {
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 24;
-            } else {
-                ret_int <<= 24;
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
-                ret_int |= @as(u32, @intCast(try self._byte_stream.readByte()));
-            }
 
-            return ret_int;
+        return ret_word;
+    }
+    pub fn read_int(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
+        self.next_bit = 0;
+        var ret_int: u32 = @as(u32, try self._byte_stream.readByte());
+        if (self._little_endian) {
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 24;
+        } else {
+            ret_int <<= 24;
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 16;
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte())) << 8;
+            ret_int |= @as(u32, @intCast(try self._byte_stream.readByte()));
         }
-        pub fn read_bit(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
-            var bit: u32 = undefined;
-            if (self.next_bit == 0) {
-                if (!self.has_bits()) {
-                    return BitReader_Error.INVALID_READ;
-                }
-                self.next_byte = try self._byte_stream.readByte();
-                if (std.mem.eql(u8, @typeName(T), "jpeg_image.JPEGImage")) {
-                    while (self.next_byte == 0xFF) {
-                        var marker: u8 = try self._byte_stream.peek();
-                        while (marker == 0xFF) {
-                            _ = try self._byte_stream.readByte();
-                            marker = try self._byte_stream.peek();
-                        }
-                        if (marker == 0x00) {
-                            _ = try self._byte_stream.readByte();
-                            break;
-                        } else if (marker >= 0xD0 and marker <= 0xD7) {
-                            _ = try self._byte_stream.readByte();
-                            self.next_byte = try self._byte_stream.readByte();
-                        } else {
-                            return BitReader_Error.INVALID_READ;
-                        }
+
+        return ret_int;
+    }
+    pub fn read_bit(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
+        var bit: u32 = undefined;
+        if (self.next_bit == 0) {
+            if (!self.has_bits()) {
+                return BitReader_Error.INVALID_READ;
+            }
+            self.next_byte = try self._byte_stream.readByte();
+            if (self._jpeg_filter) {
+                while (self.next_byte == 0xFF) {
+                    var marker: u8 = try self._byte_stream.peek();
+                    while (marker == 0xFF) {
+                        _ = try self._byte_stream.readByte();
+                        marker = try self._byte_stream.peek();
+                    }
+                    if (marker == 0x00) {
+                        _ = try self._byte_stream.readByte();
+                        break;
+                    } else if (marker >= 0xD0 and marker <= 0xD7) {
+                        _ = try self._byte_stream.readByte();
+                        self.next_byte = try self._byte_stream.readByte();
+                    } else {
+                        return BitReader_Error.INVALID_READ;
                     }
                 }
             }
-            if (std.mem.eql(u8, @typeName(T), "png_image.PNGImage")) {
-                bit = (self.next_byte >> @as(u5, @intCast(self.next_bit))) & 1;
-            } else {
-                bit = (self.next_byte >> @as(u5, @intCast(7 - self.next_bit))) & 1;
-            }
+        }
+        if (self._reverse_bit_order) {
+            bit = (self.next_byte >> @as(u5, @intCast(self.next_bit))) & 1;
+        } else {
+            bit = (self.next_byte >> @as(u5, @intCast(7 - self.next_bit))) & 1;
+        }
 
-            self.next_bit = (self.next_bit + 1) % 8;
-            return bit;
-        }
-        pub fn read_bits(self: *Self, length: u32) (BitReader_Error || ByteStream_Error)!u32 {
-            var bits: u32 = 0;
-            for (0..length) |i| {
-                const bit = try self.read_bit();
-                if (std.mem.eql(u8, @typeName(T), "png_image.PNGImage")) {
-                    bits |= bit << @as(u5, @intCast(i));
-                } else {
-                    bits = (bits << 1) | bit;
-                }
+        self.next_bit = (self.next_bit + 1) % 8;
+        return bit;
+    }
+    pub fn read_bits(self: *Self, length: u32) (BitReader_Error || ByteStream_Error)!u32 {
+        var bits: u32 = 0;
+        for (0..length) |i| {
+            const bit = try self.read_bit();
+            if (self._reverse_bit_order) {
+                bits |= bit << @as(u5, @intCast(i));
+            } else {
+                bits = (bits << 1) | bit;
             }
-            return bits;
         }
-        pub fn align_reader(self: *Self) void {
-            self.next_bit = 0;
-        }
-    };
-}
+        return bits;
+    }
+    pub fn align_reader(self: *Self) void {
+        self.next_bit = 0;
+    }
+};
 
 test "HUFFMAN_TREE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

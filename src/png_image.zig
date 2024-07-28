@@ -3,8 +3,14 @@
 //https://pyokagan.name/blog/2019-10-18-zlibinflate/
 //https://datatracker.ietf.org/doc/html/rfc1951
 //https://github.com/madler/zlib/blob/master/contrib/puff/puff.c
+//http://www.schaik.com/pngsuite/
 const std = @import("std");
 const utils = @import("utils.zig");
+
+const PixelType = union(enum) {
+    eight: utils.Pixel(u8),
+    sixteen: utils.Pixel(u16),
+};
 
 pub const PNGImage_Error = error{
     INVALID_SIGNATURE,
@@ -16,6 +22,8 @@ pub const PNGImage_Error = error{
     INVALID_BTYPE,
     INVALID_HUFFMAN_SYMBOL,
     INVALID_FILTER,
+    INVALID_COLOR_TYPE,
+    NOT_LOADED,
 };
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -104,7 +112,7 @@ pub const PNGImage = struct {
     _allocator: *std.mem.Allocator = undefined,
     _loaded: bool = false,
     _chunks: std.ArrayList(Chunk) = undefined,
-    data: std.ArrayList(utils.Pixel) = undefined,
+    data: std.ArrayList(PixelType) = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
     bit_depth: u8 = undefined,
@@ -112,6 +120,7 @@ pub const PNGImage = struct {
     compression_method: u8 = undefined,
     filter_method: u8 = undefined,
     interlace_method: u8 = undefined,
+    gamma: f32 = undefined,
     _plte_data: ?[]u8 = null,
     _idat_data: []u8 = undefined,
     _idat_data_len: usize = 0,
@@ -142,6 +151,13 @@ pub const PNGImage = struct {
                 self._plte_data.? = chunk.chunk_data;
             } else if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
                 self.handle_IDAT(chunk, &index);
+            } else if (std.mem.eql(u8, chunk.chunk_type, "gAMA")) {
+                var gamma_int: u32 = chunk.chunk_data[0];
+                gamma_int = (gamma_int << 8) | chunk.chunk_data[1];
+                gamma_int = (gamma_int << 8) | chunk.chunk_data[2];
+                gamma_int = (gamma_int << 8) | chunk.chunk_data[3];
+                self.gamma = @as(f32, @floatFromInt(gamma_int)) / 100000.0;
+                std.debug.print("gamma {d}\n", .{self.gamma});
             }
         }
         std.debug.print("index = {d}, len = {d}\n", .{ index, self._idat_data_len });
@@ -173,8 +189,8 @@ pub const PNGImage = struct {
         }
     }
     fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream_Error || PNGImage_Error || utils.BitReader_Error)!std.ArrayList(u8) {
-        var bit_reader: utils.BitReader(PNGImage) = utils.BitReader(PNGImage){};
-        bit_reader.init(self._idat_data);
+        var bit_reader: utils.BitReader = utils.BitReader{};
+        try bit_reader.init(self._idat_data, .{ .reverse_bit_order = true, .little_endian = true });
         std.debug.print("idat data len {d}\n", .{self._idat_data.len});
         defer bit_reader.deinit();
         const CMF = try bit_reader.read_byte();
@@ -202,7 +218,7 @@ pub const PNGImage = struct {
         ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 24;
         return ret;
     }
-    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!std.ArrayList(u8) {
+    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!std.ArrayList(u8) {
         var BFINAL: u32 = 0;
         var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self._allocator.*);
         while (BFINAL == 0) {
@@ -221,7 +237,7 @@ pub const PNGImage = struct {
         }
         return ret;
     }
-    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), tree: *utils.HuffmanTree(u16)) !u16 {
+    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader, tree: *utils.HuffmanTree(u16)) !u16 {
         var node = tree.root;
         while (node.left != null and node.right != null) {
             const bit = try bit_reader.read_bit();
@@ -229,11 +245,11 @@ pub const PNGImage = struct {
         }
         return node.symbol;
     }
-    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!void {
+    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || PNGImage_Error)!void {
         std.debug.print("inflate no compression\n", .{});
-        const LEN = try bit_reader.read_word(.{ .little_endian = false });
+        const LEN = try bit_reader.read_word();
         std.debug.print("LEN {d}\n", .{LEN});
-        const NLEN = try bit_reader.read_word(.{ .little_endian = true });
+        const NLEN = try bit_reader.read_word();
         std.debug.print("NLEN {d}\n", .{NLEN});
         for (0..LEN) |_| {
             try ret.append(try bit_reader.read_byte());
@@ -270,7 +286,7 @@ pub const PNGImage = struct {
         }
         return tree;
     }
-    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader, literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) !void {
         while (true) {
             var symbol = try self.decode_symbol(bit_reader, literal_length_tree);
             if (symbol <= 255) {
@@ -289,7 +305,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage)) !struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
+    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader) !struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
         const HLIT: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 257;
         const HDIST: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 1;
         const HCLEN: u16 = @as(u16, @intCast(try bit_reader.read_bits(4))) + 4;
@@ -342,7 +358,7 @@ pub const PNGImage = struct {
         const distance_tree = try self.bit_length_list_to_tree(bit_length_list.items[HLIT..], &distance_tree_alphabet);
         return .{ .literal_length_tree = literal_length_tree, .distance_tree = distance_tree };
     }
-    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
         std.debug.print("inflate fixed \n", .{});
         var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
         defer std.ArrayList(u16).deinit(bit_length_list);
@@ -375,7 +391,7 @@ pub const PNGImage = struct {
         distance_tree.deinit();
         self._allocator.destroy(distance_tree);
     }
-    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader(PNGImage), ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
         std.debug.print("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
@@ -384,8 +400,24 @@ pub const PNGImage = struct {
         trees.distance_tree.deinit();
         self._allocator.destroy(trees.distance_tree);
     }
-    fn filter_scanline(_: *PNGImage, filter_type: u8, scanline: []u8, num_bytes_per_pixel: usize) void {
+    fn paeth_predictor(_: *PNGImage, a: u8, b: u8, c: u8) u8 {
+        //std.debug.print("a {d}, b {d}, c {d}\n", .{ a, b, c });
+        var p: i16 = @as(i16, @intCast(b)) - @as(i16, @intCast(c));
+        p += a;
+        const pa = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(a)))));
+        const pb = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(b)))));
+        //std.debug.print("p {d} c {d}\n", .{ p, c });
+        const pc = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(c)))));
+        if (pa <= pb and pa <= pc) {
+            return a;
+        } else if (pb <= pc) {
+            return b;
+        }
+        return c;
+    }
+    fn filter_scanline(self: *PNGImage, filter_type: u8, scanline: []u8, previous_scanline: ?[]u8, num_bytes_per_pixel: usize) void {
         if (filter_type == 0) return;
+        // sub
         if (filter_type == 1) {
             for (0..scanline.len) |i| {
                 if (i >= num_bytes_per_pixel) {
@@ -393,34 +425,93 @@ pub const PNGImage = struct {
                 }
             }
         }
+        // up
+        else if (filter_type == 2) {
+            for (0..scanline.len) |i| {
+                const prior = if (previous_scanline != null) previous_scanline.?[i] else 0;
+                scanline[i] = @as(u8, @intCast((@as(u16, @intCast(scanline[i])) + @as(u16, @intCast(prior))) % 256));
+            }
+        }
+        // avg
+        else if (filter_type == 3) {
+            for (0..scanline.len) |i| {
+                const left = if (i >= num_bytes_per_pixel) scanline[i - num_bytes_per_pixel] else 0;
+                const prior = if (previous_scanline != null) previous_scanline.?[i] else 0;
+                scanline[i] = @as(u8, @intCast((@as(u16, @intCast(scanline[i])) + (@as(u16, @intCast(left)) + @as(u16, @intCast(prior))) / 2) % 256));
+            }
+        }
+        // paeth
+        else if (filter_type == 4) {
+            for (0..scanline.len) |i| {
+                const left = if (i >= num_bytes_per_pixel) scanline[i - num_bytes_per_pixel] else 0;
+                const prior = if (previous_scanline != null) previous_scanline.?[i] else 0;
+                const prior_left = if (i >= num_bytes_per_pixel and previous_scanline != null) previous_scanline.?[i - num_bytes_per_pixel] else 0;
+                //std.debug.print("left {d}, prior {d}, prior_left {d}\n", .{ left, prior, prior_left });
+                scanline[i] = @as(u8, @intCast((@as(u16, @intCast(scanline[i])) + @as(u16, @intCast(self.paeth_predictor(left, prior, prior_left)))) % 256));
+            }
+        }
     }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
-        self.data = std.ArrayList(utils.Pixel).init(self._allocator.*);
+        self.data = std.ArrayList(PixelType).init(self._allocator.*);
         var i: usize = 0;
+        var previous_index: usize = 0;
+        var num_bytes_per_pixel: usize = 3;
+        switch (self.color_type) {
+            0 => num_bytes_per_pixel = @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(self.bit_depth)) / 8.0))),
+            2 => num_bytes_per_pixel = 3 * (self.bit_depth / 8),
+            3 => num_bytes_per_pixel = 1,
+            4 => num_bytes_per_pixel = 2 * (self.bit_depth / 8),
+            6 => num_bytes_per_pixel = 4 * (self.bit_depth / 8),
+            else => return PNGImage_Error.INVALID_COLOR_TYPE,
+        }
+        std.debug.print("bytes per pixel {d}\n", .{num_bytes_per_pixel});
         for (0..self.height) |_| {
             const filter_type: u8 = ret.items[i];
-            std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+            //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
             i += 1;
-            const num_bytes_per_pixel: usize = if (self.color_type == 2) 3 else 4;
-            self.filter_scanline(filter_type, ret.items[i .. (self.width * num_bytes_per_pixel) + i], num_bytes_per_pixel);
+            const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. (self.width * num_bytes_per_pixel) + previous_index] else null;
+            previous_index = i;
+            self.filter_scanline(filter_type, ret.items[i .. (self.width * num_bytes_per_pixel) + i], previous_scanline, num_bytes_per_pixel);
             for (0..self.width) |_| {
-                // next 3 bytes are rgb followed by alpha
-                if (self.color_type == 6) {
-                    try self.data.append(utils.Pixel{
-                        .r = ret.items[i],
-                        .g = ret.items[i + 1],
-                        .b = ret.items[i + 2],
-                    });
-                    i += 4;
-                }
-                // next 3 bytes are rgb
-                else if (self.color_type == 2) {
-                    try self.data.append(utils.Pixel{
-                        .r = ret.items[i],
-                        .g = ret.items[i + 1],
-                        .b = ret.items[i + 2],
-                    });
-                    i += 3;
+                if (self.bit_depth == 8) {
+                    // next 3 bytes are rgb followed by alpha
+                    if (self.color_type == 6) {
+                        const bkgd = 255;
+                        const alpha = @as(f32, @floatFromInt(ret.items[i + 3]));
+                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i]))));
+                        var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i + 1]))));
+                        var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[i + 2]))));
+                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        try self.data.append(PixelType{ .eight = utils.Pixel(u8){
+                            .r = r,
+                            .g = g,
+                            .b = b,
+                        } });
+                        i += 4;
+                    }
+                    // next 3 bytes are rgb
+                    else if (self.color_type == 2) {
+                        try self.data.append(PixelType{ .eight = utils.Pixel(u8){
+                            .r = ret.items[i],
+                            .g = ret.items[i + 1],
+                            .b = ret.items[i + 2],
+                        } });
+                        i += 3;
+                    }
+                } else if (self.bit_depth == 16) {
+                    if (self.color_type == 2) {
+                        try self.data.append(PixelType{ .sixteen = utils.Pixel(u16){
+                            .r = (@as(u16, @intCast(ret.items[i + 1])) << 8) | ret.items[i],
+                            .g = (@as(u16, @intCast(ret.items[i + 3])) << 8) | ret.items[i + 2],
+                            .b = (@as(u16, @intCast(ret.items[i + 5])) << 8) | ret.items[i + 4],
+                        } });
+                        i += 6;
+                    }
                 }
             }
         }
@@ -439,6 +530,7 @@ pub const PNGImage = struct {
         try self.data_stream_to_rgb(&ret);
         std.debug.print("num pixels {d}\n", .{self.data.items.len});
         defer std.ArrayList(u8).deinit(ret);
+        self._loaded = true;
     }
     fn _little_endian(_: *PNGImage, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
         switch (num_bytes) {
@@ -452,9 +544,9 @@ pub const PNGImage = struct {
         }
     }
     pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
-        // if (!self._loaded) {
-        //     return JPEGImage_Error.NOT_LOADED;
-        // }
+        if (!self._loaded) {
+            return PNGImage_Error.NOT_LOADED;
+        }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
         try image_file.writer().writeByte('B');
@@ -477,14 +569,27 @@ pub const PNGImage = struct {
         var j: usize = 0;
         while (i >= 0) {
             while (j < self.width) {
-                const pixel: *utils.Pixel = &self.data.items[i * self.width + j];
-                buffer_pos[0] = pixel.b;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.g;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.r;
-                buffer_pos.ptr += 1;
-                j += 1;
+                const pixel: *PixelType = &self.data.items[i * self.width + j];
+                switch (pixel.*) {
+                    .eight => |pix| {
+                        buffer_pos[0] = pix.b;
+                        buffer_pos.ptr += 1;
+                        buffer_pos[0] = pix.g;
+                        buffer_pos.ptr += 1;
+                        buffer_pos[0] = pix.r;
+                        buffer_pos.ptr += 1;
+                        j += 1;
+                    },
+                    .sixteen => |pix| {
+                        buffer_pos[0] = @as(u8, @truncate(pix.b));
+                        buffer_pos.ptr += 1;
+                        buffer_pos[0] = @as(u8, @truncate(pix.g));
+                        buffer_pos.ptr += 1;
+                        buffer_pos[0] = @as(u8, @truncate(pix.r));
+                        buffer_pos.ptr += 1;
+                        j += 1;
+                    },
+                }
             }
             for (0..padding_size) |_| {
                 buffer_pos[0] = 0;
@@ -504,39 +609,39 @@ pub const PNGImage = struct {
         }
         std.ArrayList(Chunk).deinit(self._chunks);
         self._allocator.free(self._idat_data);
-        std.ArrayList(utils.Pixel).deinit(self.data);
+        std.ArrayList(PixelType).deinit(self.data);
     }
 };
 
-// test "BASIC" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = PNGImage{};
-//     try image.load_PNG("basn6a08.png", &allocator);
-//     try image.write_BMP("basn6a08.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "BASIC" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn6a08.png", &allocator);
+    try image.write_BMP("basn6a08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "BASIC NO FILTER" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = PNGImage{};
-//     try image.load_PNG("f00n2c08.png", &allocator);
-//     try image.write_BMP("f00n2c08.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "BASIC NO FILTER" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/filtering/f00n2c08.png", &allocator);
+    try image.write_BMP("f00n2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
 test "BASIC SUB FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load_PNG("f01n2c08.png", &allocator);
+    try image.load_PNG("tests/png/filtering/f01n2c08.png", &allocator);
     try image.write_BMP("f01n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -544,12 +649,60 @@ test "BASIC SUB FILTER" {
     }
 }
 
-// test "SHIELD" {
+test "BASIC UP FILTER" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/filtering/f02n2c08.png", &allocator);
+    try image.write_BMP("f02n2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BASIC AVG FILTER" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/filtering/f03n2c08.png", &allocator);
+    try image.write_BMP("f03n2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "SHIELD" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/shield.png", &allocator);
+    try image.write_BMP("shield.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 16 BIT" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/basic/basn2c16.png", &allocator);
+    try image.write_BMP("basn2c16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+// test "BASIC 16 BIT ALPHA" {
 //     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 //     var allocator = gpa.allocator();
 //     var image = PNGImage{};
-//     try image.load_PNG("shield.png", &allocator);
-//     try image.write_BMP("shield.bmp");
+//     try image.load_PNG("tests/png/basic/basn6a16.png", &allocator);
+//     try image.write_BMP("basn6a16.bmp");
 //     image.deinit();
 //     if (gpa.deinit() == .leak) {
 //         std.debug.print("Leaked!\n", .{});
