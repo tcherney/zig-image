@@ -28,6 +28,18 @@ pub fn max_array(comptime T: type, arr: []T) Max_error!T {
     return max_t;
 }
 
+pub fn write_little_endian(file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
+    switch (num_bytes) {
+        2 => {
+            try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
+        },
+        4 => {
+            try file.writer().writeInt(u32, i, std.builtin.Endian.little);
+        },
+        else => unreachable,
+    }
+}
+
 pub fn HuffmanTree(comptime T: type) type {
     return struct {
         root: Node,

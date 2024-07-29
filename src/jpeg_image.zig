@@ -1135,17 +1135,6 @@ pub const JPEGImage = struct {
         }
         std.debug.print("number of pixels {d}\n", .{self.data.?.items.len});
     }
-    fn _little_endian(_: *JPEGImage, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
-        switch (num_bytes) {
-            2 => {
-                try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
-            },
-            4 => {
-                try file.writer().writeInt(u32, i, std.builtin.Endian.little);
-            },
-            else => unreachable,
-        }
-    }
     pub fn convert_grayscale(self: *JPEGImage) !void {
         if (self._loaded) {
             for (0..self.data.?.items.len) |i| {
@@ -1172,14 +1161,14 @@ pub const JPEGImage = struct {
         var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
         var buffer_pos = buffer[0..buffer.len];
         defer self._allocator.free(buffer);
-        try self._little_endian(&image_file, 4, size);
-        try self._little_endian(&image_file, 4, 0);
-        try self._little_endian(&image_file, 4, 0x1A);
-        try self._little_endian(&image_file, 4, 12);
-        try self._little_endian(&image_file, 2, self.width);
-        try self._little_endian(&image_file, 2, self.height);
-        try self._little_endian(&image_file, 2, 1);
-        try self._little_endian(&image_file, 2, 24);
+        try utils.write_little_endian(&image_file, 4, size);
+        try utils.write_little_endian(&image_file, 4, 0);
+        try utils.write_little_endian(&image_file, 4, 0x1A);
+        try utils.write_little_endian(&image_file, 4, 12);
+        try utils.write_little_endian(&image_file, 2, self.width);
+        try utils.write_little_endian(&image_file, 2, self.height);
+        try utils.write_little_endian(&image_file, 2, 1);
+        try utils.write_little_endian(&image_file, 2, 24);
         var i: usize = self.height - 1;
         var j: usize = 0;
         while (i >= 0) {
@@ -1202,6 +1191,9 @@ pub const JPEGImage = struct {
             i -= 1;
         }
         try image_file.writeAll(buffer);
+    }
+    pub fn get(self: *JPEGImage, x: usize, y: usize) *utils.Pixel(u8) {
+        return &self.data.?.items[y * self.width + x];
     }
     pub fn load_JPEG(self: *JPEGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         var bit_reader: utils.BitReader = utils.BitReader{};

@@ -8,11 +8,6 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
-const PixelType = union(enum) {
-    eight: utils.Pixel(u8),
-    sixteen: utils.Pixel(u16),
-};
-
 pub const PNGImage_Error = error{
     INVALID_SIGNATURE,
     INVALID_CRC,
@@ -119,7 +114,7 @@ pub const PNGImage = struct {
     _allocator: *std.mem.Allocator = undefined,
     _loaded: bool = false,
     _chunks: std.ArrayList(Chunk) = undefined,
-    data: std.ArrayList(PixelType) = undefined,
+    data: std.ArrayList(utils.Pixel(u8)) = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
     bit_depth: u8 = undefined,
@@ -464,11 +459,11 @@ pub const PNGImage = struct {
                 switch (self.bit_depth) {
                     1 => {
                         const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
-                        } };
+                        };
                         if (bit_index.* == 0) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -479,11 +474,11 @@ pub const PNGImage = struct {
                     2 => {
                         const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 3.0)));
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
-                        } };
+                        };
                         if (bit_index.* == 1) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -494,11 +489,11 @@ pub const PNGImage = struct {
                     4 => {
                         const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 15.0)));
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
-                        } };
+                        };
                         if (bit_index.* == 3) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -508,20 +503,20 @@ pub const PNGImage = struct {
                     },
                     8 => {
                         const rgb: u8 = ret.items[buffer_index.*];
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
-                        } };
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
-                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        } };
+                        self.data.items[data_index] = utils.Pixel(u8){
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -530,19 +525,19 @@ pub const PNGImage = struct {
             2 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = ret.items[buffer_index.*],
                             .g = ret.items[buffer_index.* + 1],
                             .b = ret.items[buffer_index.* + 2],
-                        } };
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
-                            .r = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1],
-                            .g = (@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3],
-                            .b = (@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5],
-                        } };
+                        self.data.items[data_index] = utils.Pixel(u8){
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -565,11 +560,11 @@ pub const PNGImage = struct {
                         const bkgd = max_pixel;
                         var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
                         rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
-                        } };
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
@@ -579,11 +574,11 @@ pub const PNGImage = struct {
                         const bkgd = max_pixel;
                         var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
                         rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        } };
+                        self.data.items[data_index] = utils.Pixel(u8){
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -604,11 +599,11 @@ pub const PNGImage = struct {
                         r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = PixelType{ .eight = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel(u8){
                             .r = r,
                             .g = g,
                             .b = b,
-                        } };
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
@@ -625,11 +620,11 @@ pub const PNGImage = struct {
                         r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = PixelType{ .sixteen = utils.Pixel(u16){
-                            .r = r,
-                            .g = g,
-                            .b = b,
-                        } };
+                        self.data.items[data_index] = utils.Pixel(u8){
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(r)) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(g)) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(b)) * (255.0 / 65535.0))),
+                        };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -639,7 +634,7 @@ pub const PNGImage = struct {
         }
     }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || PNGImage_Error)!void {
-        self.data = try std.ArrayList(PixelType).initCapacity(self._allocator.*, self.height * self.width);
+        self.data = try std.ArrayList(utils.Pixel(u8)).initCapacity(self._allocator.*, self.height * self.width);
         self.data.expandToCapacity();
         var buffer_index: usize = 0;
         var previous_index: usize = 0;
@@ -698,20 +693,10 @@ pub const PNGImage = struct {
     pub fn convert_grayscale(self: *PNGImage) !void {
         if (self._loaded) {
             for (0..self.data.items.len) |i| {
-                switch (self.data.items[i]) {
-                    .eight => |*pix| {
-                        const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.b)) * 0.1140));
-                        pix.*.r = gray;
-                        pix.*.g = gray;
-                        pix.*.b = gray;
-                    },
-                    .sixteen => |*pix| {
-                        const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.b)) * 0.1140));
-                        pix.*.r = gray;
-                        pix.*.g = gray;
-                        pix.*.b = gray;
-                    },
-                }
+                const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].b)) * 0.1140));
+                self.data.items[i].r = gray;
+                self.data.items[i].g = gray;
+                self.data.items[i].b = gray;
             }
         } else {
             return PNGImage_Error.NOT_LOADED;
@@ -733,17 +718,11 @@ pub const PNGImage = struct {
         defer std.ArrayList(u8).deinit(ret);
         self._loaded = true;
     }
-    fn _little_endian(_: *PNGImage, file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
-        switch (num_bytes) {
-            2 => {
-                try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
-            },
-            4 => {
-                try file.writer().writeInt(u32, i, std.builtin.Endian.little);
-            },
-            else => unreachable,
-        }
+
+    pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel(u8) {
+        return &self.data.items[y * self.width + x];
     }
+
     pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
         if (!self._loaded) {
             return PNGImage_Error.NOT_LOADED;
@@ -758,39 +737,26 @@ pub const PNGImage = struct {
         var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
         var buffer_pos = buffer[0..buffer.len];
         defer self._allocator.free(buffer);
-        try self._little_endian(&image_file, 4, size);
-        try self._little_endian(&image_file, 4, 0);
-        try self._little_endian(&image_file, 4, 0x1A);
-        try self._little_endian(&image_file, 4, 12);
-        try self._little_endian(&image_file, 2, self.width);
-        try self._little_endian(&image_file, 2, self.height);
-        try self._little_endian(&image_file, 2, 1);
-        try self._little_endian(&image_file, 2, 24);
+        try utils.write_little_endian(&image_file, 4, size);
+        try utils.write_little_endian(&image_file, 4, 0);
+        try utils.write_little_endian(&image_file, 4, 0x1A);
+        try utils.write_little_endian(&image_file, 4, 12);
+        try utils.write_little_endian(&image_file, 2, self.width);
+        try utils.write_little_endian(&image_file, 2, self.height);
+        try utils.write_little_endian(&image_file, 2, 1);
+        try utils.write_little_endian(&image_file, 2, 24);
         var i: usize = self.height - 1;
         var j: usize = 0;
         while (i >= 0) {
             while (j < self.width) {
-                const pixel: *PixelType = &self.data.items[i * self.width + j];
-                switch (pixel.*) {
-                    .eight => |pix| {
-                        buffer_pos[0] = pix.b;
-                        buffer_pos.ptr += 1;
-                        buffer_pos[0] = pix.g;
-                        buffer_pos.ptr += 1;
-                        buffer_pos[0] = pix.r;
-                        buffer_pos.ptr += 1;
-                        j += 1;
-                    },
-                    .sixteen => |pix| {
-                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.b)) * (255.0 / 65535.0)));
-                        buffer_pos.ptr += 1;
-                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.g)) * (255.0 / 65535.0)));
-                        buffer_pos.ptr += 1;
-                        buffer_pos[0] = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.r)) * (255.0 / 65535.0)));
-                        buffer_pos.ptr += 1;
-                        j += 1;
-                    },
-                }
+                const pixel: *utils.Pixel(u8) = &self.data.items[i * self.width + j];
+                buffer_pos[0] = pixel.b;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.g;
+                buffer_pos.ptr += 1;
+                buffer_pos[0] = pixel.r;
+                buffer_pos.ptr += 1;
+                j += 1;
             }
             for (0..padding_size) |_| {
                 buffer_pos[0] = 0;
@@ -809,7 +775,7 @@ pub const PNGImage = struct {
         }
         std.ArrayList(Chunk).deinit(self._chunks);
         self._allocator.free(self._idat_data);
-        std.ArrayList(PixelType).deinit(self.data);
+        std.ArrayList(utils.Pixel(u8)).deinit(self.data);
     }
 };
 

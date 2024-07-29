@@ -16,6 +16,7 @@ test "JPEG" {
     var image = Image(JPEGImage){};
     try image.load_JPEG("tests/jpeg/cat.jpg", &allocator);
     try image.convert_grayscale();
+    image.get(5, 5).r = 255;
     try image.write_BMP("cat.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -29,6 +30,7 @@ test "PNG" {
     var image = Image(PNGImage){};
     try image.load_PNG("tests/png/shield.png", &allocator);
     try image.convert_grayscale();
+    image.get(5, 5).r = 255;
     try image.write_BMP("shield.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
