@@ -4,6 +4,7 @@
 //https://datatracker.ietf.org/doc/html/rfc1951
 //https://github.com/madler/zlib/blob/master/contrib/puff/puff.c
 //http://www.schaik.com/pngsuite/
+//https://www.w3.org/TR/2024/CRD-png-3-20240718/#13Progressive-display
 const std = @import("std");
 const utils = @import("utils.zig");
 
@@ -106,6 +107,12 @@ const LengthBase = [_]u16{ 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 
 const DistanceExtraBits = [_]u16{ 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
 const DistanceBase = [_]u16{ 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
 const CodeLengthCodesOrder = [_]u16{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+const StartingRow = [_]u8{ 0, 0, 4, 0, 2, 0, 1 };
+const StartingCol = [_]u8{ 0, 4, 0, 2, 0, 1, 0 };
+const RowIncrement = [_]u8{ 8, 8, 8, 4, 4, 2, 2 };
+const ColIncrement = [_]u8{ 8, 8, 4, 4, 2, 2, 1 };
+const BlockHeight = [_]u8{ 8, 8, 4, 4, 2, 2, 1 };
+const BlockWidth = [_]u8{ 8, 4, 4, 2, 2, 1, 1 };
 
 pub const PNGImage = struct {
     _file_data: utils.ByteStream = undefined,
@@ -148,7 +155,7 @@ pub const PNGImage = struct {
             if (std.mem.eql(u8, chunk.chunk_type, "IHDR")) {
                 self.handle_IHDR(chunk);
             } else if (std.mem.eql(u8, chunk.chunk_type, "PLTE")) {
-                self._plte_data.? = chunk.chunk_data;
+                self._plte_data = chunk.chunk_data;
             } else if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
                 self.handle_IDAT(chunk, &index);
             } else if (std.mem.eql(u8, chunk.chunk_type, "gAMA")) {
@@ -645,27 +652,69 @@ pub const PNGImage = struct {
             6 => num_bytes_per_pixel = 4 * (self.bit_depth / 8),
             else => return PNGImage_Error.INVALID_COLOR_TYPE,
         }
-        const scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
+        var scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
         std.debug.print("bytes per pixel {d}\n", .{num_bytes_per_pixel});
-        // filter pass
-        for (0..self.height) |_| {
-            const filter_type: u8 = ret.items[buffer_index];
-            //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
-            buffer_index += 1;
-            const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
-            previous_index = buffer_index;
-            self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
-            buffer_index += scanline_width;
-        }
         buffer_index = 0;
         var data_index: usize = 0;
-        for (0..self.height) |_| {
-            buffer_index += 1;
-            var bit_index: u3 = 7;
-            for (0..self.width) |_| {
-                try self.add_filtered_pixel(ret, &buffer_index, &bit_index, data_index, num_bytes_per_pixel);
-                data_index += 1;
+        if (self.interlace_method == 0) {
+            for (0..self.height) |_| {
+                const filter_type: u8 = ret.items[buffer_index];
+                //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+                buffer_index += 1;
+                const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
+                previous_index = buffer_index;
+                self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
+                var bit_index: u3 = 7;
+                for (0..self.width) |_| {
+                    try self.add_filtered_pixel(ret, &buffer_index, &bit_index, data_index, num_bytes_per_pixel);
+                    data_index += 1;
+                }
             }
+        }
+        // adam7
+        else if (self.interlace_method == 1) {
+            var pass: u3 = 0;
+            while (pass < 7) : (pass += 1) {
+                var row: usize = StartingRow[pass];
+                previous_index = 0;
+                while (row < self.height) : (row += RowIncrement[pass]) {
+                    var col: usize = StartingCol[pass];
+                    var bit_index: u3 = 7;
+                    const filter_type: u8 = ret.items[buffer_index];
+                    //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+                    buffer_index += 1;
+                    scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
+                    const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
+                    previous_index = buffer_index;
+                    self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
+                    while (col < self.width) : (col += ColIncrement[pass]) {
+                        try self.add_filtered_pixel(ret, &buffer_index, &bit_index, ((row * self.width) + col), num_bytes_per_pixel);
+                    }
+                }
+            }
+        }
+        std.debug.print("index {d}\n", .{buffer_index});
+    }
+    pub fn convert_grayscale(self: *PNGImage) !void {
+        if (self._loaded) {
+            for (0..self.data.items.len) |i| {
+                switch (self.data.items[i]) {
+                    .eight => |*pix| {
+                        const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.b)) * 0.1140));
+                        pix.*.r = gray;
+                        pix.*.g = gray;
+                        pix.*.b = gray;
+                    },
+                    .sixteen => |*pix| {
+                        const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(pix.*.b)) * 0.1140));
+                        pix.*.r = gray;
+                        pix.*.g = gray;
+                        pix.*.b = gray;
+                    },
+                }
+            }
+        } else {
+            return PNGImage_Error.NOT_LOADED;
         }
     }
     pub fn load_PNG(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
@@ -837,18 +886,6 @@ test "BASIC AVG FILTER" {
     }
 }
 
-test "SHIELD" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
-    var image = PNGImage{};
-    try image.load_PNG("tests/png/shield.png", &allocator);
-    try image.write_BMP("shield.bmp");
-    image.deinit();
-    if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
-    }
-}
-
 test "BASIC 8 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
@@ -957,12 +994,96 @@ test "GRAY 16 ALPHA" {
     }
 }
 
+test "PALETTE 8 GRAY" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/palette/ps2n2c16.png", &allocator);
+    try image.write_BMP("ps2n2c16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
 test "BW INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load_PNG("tests/png/interlacing/basi0g01.png", &allocator);
     try image.write_BMP("basi0g01.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW 2 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi0g02.png", &allocator);
+    try image.write_BMP("basi0g02.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW 4 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi0g04.png", &allocator);
+    try image.write_BMP("basi0g04.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW 8 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi0g08.png", &allocator);
+    try image.write_BMP("basi0g08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "BW 16 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi0g16.png", &allocator);
+    try image.write_BMP("basi0g16.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "COLOR 8 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi2c08.png", &allocator);
+    try image.write_BMP("basi2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
+
+test "COLOR 16 INTERLACE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load_PNG("tests/png/interlacing/basi2c16.png", &allocator);
+    try image.write_BMP("basi2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
