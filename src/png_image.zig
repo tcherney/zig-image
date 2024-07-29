@@ -802,7 +802,6 @@ pub const PNGImage = struct {
         }
         try image_file.writeAll(buffer);
     }
-
     pub fn deinit(self: *PNGImage) void {
         self._file_data.deinit();
         for (self._chunks.items) |*chunk| {

@@ -4,4 +4,4 @@
 /patches/healed/
 /output/
 /.zig-cache/
-.bmp
+*.bmp
