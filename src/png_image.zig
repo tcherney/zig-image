@@ -666,6 +666,7 @@ pub const PNGImage = struct {
                 }
             }
         }
+        //TODO improve interlacing support
         // adam7
         else if (self.interlace_method == 1) {
             var pass: u3 = 0;

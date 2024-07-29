@@ -1233,117 +1233,117 @@ test "GORILLA" {
     }
 }
 
-// test "FISH2_1V" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/sub/goldfish_2to1V.jpg", &allocator);
-//     try image.write_BMP("goldfish_2to1V.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1V" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/sub/goldfish_2to1V.jpg", &allocator);
+    try image.write_BMP("goldfish_2to1V.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1H" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/sub/goldfish_2to1H.jpg", &allocator);
-//     try image.write_BMP("goldfish_2to1H.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1H" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/sub/goldfish_2to1H.jpg", &allocator);
+    try image.write_BMP("goldfish_2to1H.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "FISH2_1" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/sub/goldfish_2to1.jpg", &allocator);
-//     try image.write_BMP("goldfish_2to1.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "FISH2_1" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/sub/goldfish_2to1.jpg", &allocator);
+    try image.write_BMP("goldfish_2to1.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "test" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/test.jpg", &allocator);
-//     try image.write_BMP("test.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "test" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/test.jpg", &allocator);
+    try image.write_BMP("test.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "PARROT" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/prog/parrot.jpg", &allocator);
-//     try image.write_BMP("parrot.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "PARROT" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/prog/parrot.jpg", &allocator);
+    try image.write_BMP("parrot.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "EARTH" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/prog/earth.jpg", &allocator);
-//     try image.write_BMP("earth.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "EARTH" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/prog/earth.jpg", &allocator);
+    try image.write_BMP("earth.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "PENGUIN" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/prog/sub/penguin.jpg", &allocator);
-//     try image.write_BMP("penguin.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "PENGUIN" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/prog/sub/penguin.jpg", &allocator);
+    try image.write_BMP("penguin.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "SLOTH" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/prog/sub/sloth.jpg", &allocator);
-//     try image.write_BMP("sloth.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "SLOTH" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/prog/sub/sloth.jpg", &allocator);
+    try image.write_BMP("sloth.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "TIGER" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load_JPEG("tests/jpeg/prog/sub/tiger.jpg", &allocator);
-//     try image.write_BMP("tiger.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "TIGER" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load_JPEG("tests/jpeg/prog/sub/tiger.jpg", &allocator);
+    try image.write_BMP("tiger.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
-// test "block" {
-//     var block: Block(i32) = Block(i32){};
-//     block.init();
-//     block.r[1] = 5;
-//     try std.testing.expect(block.r[1] == 5 and block.y[1] == 5);
-// }
+test "block" {
+    var block: Block(i32) = Block(i32){};
+    block.init();
+    block.r[1] = 5;
+    try std.testing.expect(block.r[1] == 5 and block.y[1] == 5);
+}
