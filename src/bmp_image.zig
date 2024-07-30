@@ -28,7 +28,7 @@ pub const BMPImage = struct {
                 self.data.items[i].b = gray;
             }
         } else {
-            return BMPImage.NOT_LOADED;
+            return BMPImage_Error.NOT_LOADED;
         }
     }
     pub fn load_PNG(self: *BMPImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
@@ -62,6 +62,8 @@ pub const BMPImage = struct {
                     };
                     j += 1;
                 }
+                //TODO support other pixel rep
+                else {}
             }
             for (0..padding_size) |_| {
                 _ = try self._file_data.read_byte();
@@ -164,12 +166,12 @@ pub const BMPImage = struct {
     }
 };
 
-test "BASIC 16" {
+test "CAT" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = BMPImage{};
-    try image.load_PNG("tests/bmp/parrot.bmp", &allocator);
-    try image.write_BMP("parrot2.bmp");
+    try image.load_PNG("tests/bmp/cat.bmp", &allocator);
+    try image.write_BMP("cat2.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.debug.print("Leaked!\n", .{});
