@@ -2,7 +2,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
-pub const BMPImage_Error = error{
+pub const Error = error{
     NOT_LOADED,
     INVALID_BMP_HEADER,
     INVALID_DIB_HEADER,
@@ -90,10 +90,10 @@ pub const BMPImage = struct {
                 self.data.items[i].b = gray;
             }
         } else {
-            return BMPImage_Error.NOT_LOADED;
+            return Error.NOT_LOADED;
         }
     }
-    pub fn load_PNG(self: *BMPImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
+    pub fn load(self: *BMPImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.BitReader{};
         try self._file_data.init_file(file_name, self._allocator, .{ .little_endian = true });
@@ -110,7 +110,7 @@ pub const BMPImage = struct {
         return &self.data.items[y * self.width + x];
     }
 
-    fn read_color_data(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_color_data(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         const padding_size = self.width % 4;
         var i: usize = self.height - 1;
         var j: usize = 0;
@@ -144,7 +144,7 @@ pub const BMPImage = struct {
                         }
                     },
                     //TODO support other compression types
-                    else => return BMPImage_Error.UNSUPPORTED_COMPRESSION_METHOD,
+                    else => return Error.UNSUPPORTED_COMPRESSION_METHOD,
                 }
             }
             for (0..padding_size) |_| {
@@ -155,7 +155,7 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_DIB_V2_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_V2_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         try self.read_DIB_V1_header();
         self._dib_file_header.red_mask = try self._file_data.read_int();
         self._dib_file_header.green_mask = try self._file_data.read_int();
@@ -163,13 +163,13 @@ pub const BMPImage = struct {
         std.debug.print("red mask {d}, green mask {d}, blue mask {d}\n", .{ self._dib_file_header.red_mask, self._dib_file_header.green_mask, self._dib_file_header.blue_mask });
     }
 
-    fn read_DIB_V3_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_V3_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         try self.read_DIB_V2_header();
         self._dib_file_header.alpha_mask = try self._file_data.read_int();
         std.debug.print("alpha mask {d}\n", .{self._dib_file_header.alpha_mask});
     }
 
-    fn read_DIB_V4_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_V4_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         try self.read_DIB_V3_header();
         self._dib_file_header.color_space_type = try self._file_data.read_int();
         self._dib_file_header.ciexyz = BMPDIBHeader.CIEXYZ{};
@@ -193,7 +193,7 @@ pub const BMPImage = struct {
         self._dib_file_header.gamma_blue = try self._file_data.read_int();
     }
 
-    fn read_DIB_V5_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_V5_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         try self.read_DIB_V4_header();
         self._dib_file_header.intent = try self._file_data.read_int();
         self._dib_file_header.profile_data = try self._file_data.read_int();
@@ -201,12 +201,12 @@ pub const BMPImage = struct {
         self._dib_file_header.reserved = try self._file_data.read_int();
     }
 
-    fn read_DIB_V1_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_V1_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         self.width = try self._file_data.read_int();
         self.height = try self._file_data.read_int();
         self._dib_file_header.color_planes = try self._file_data.read_word();
         if (self._dib_file_header.color_planes != 1) {
-            return BMPImage_Error.INVALID_DIB_HEADER;
+            return Error.INVALID_DIB_HEADER;
         }
         self._dib_file_header.bpp = try self._file_data.read_word();
         self._dib_file_header.compression_method = @enumFromInt(try self._file_data.read_int());
@@ -218,7 +218,7 @@ pub const BMPImage = struct {
         std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self._dib_file_header.color_planes, self._dib_file_header.bpp, self._dib_file_header.compression_method, self._dib_file_header.image_size, self._dib_file_header.horizontal_res, self._dib_file_header.vertical_res, self._dib_file_header.num_col_palette, self._dib_file_header.important_colors });
     }
 
-    fn read_DIB_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_DIB_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         self._dib_file_header = BMPDIBHeader{};
         self._dib_file_header.size = try self._file_data.read_int();
         std.debug.print("header_size {d}\n", .{self._dib_file_header.size});
@@ -229,7 +229,7 @@ pub const BMPImage = struct {
                 self.height = try self._file_data.read_word();
                 self._dib_file_header.color_planes = try self._file_data.read_word();
                 if (self._dib_file_header.color_planes != 1) {
-                    return BMPImage_Error.INVALID_DIB_HEADER;
+                    return Error.INVALID_DIB_HEADER;
                 }
                 self._dib_file_header.bpp = try self._file_data.read_word();
                 std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}\n", .{ self.width, self.height, self._dib_file_header.color_planes, self._dib_file_header.bpp });
@@ -252,13 +252,13 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_BMP_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || BMPImage_Error)!void {
+    fn read_BMP_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
         // type
         self._bmp_file_header.bmp_type[0] = try self._file_data.read_byte();
         self._bmp_file_header.bmp_type[1] = try self._file_data.read_byte();
         //TODO handle types
         if (!std.mem.eql(u8, &self._bmp_file_header.bmp_type, "BM")) {
-            return BMPImage_Error.INVALID_BMP_HEADER;
+            return Error.INVALID_BMP_HEADER;
         }
         std.debug.print("file type {s}\n", .{self._bmp_file_header.bmp_type});
         // size
@@ -274,7 +274,7 @@ pub const BMPImage = struct {
 
     pub fn write_BMP(self: *BMPImage, file_name: []const u8) !void {
         if (!self._loaded) {
-            return BMPImage_Error.NOT_LOADED;
+            return Error.NOT_LOADED;
         }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
@@ -327,7 +327,7 @@ test "CAT" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = BMPImage{};
-    try image.load_PNG("tests/bmp/cat.bmp", &allocator);
+    try image.load("tests/bmp/cat.bmp", &allocator);
     try image.write_BMP("os.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -339,7 +339,7 @@ test "V3" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = BMPImage{};
-    try image.load_PNG("tests/bmp/basic0.bmp", &allocator);
+    try image.load("tests/bmp/basic0.bmp", &allocator);
     try image.write_BMP("v3.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -351,7 +351,7 @@ test "V5" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
     var image = BMPImage{};
-    try image.load_PNG("tests/bmp/basic1.bmp", &allocator);
+    try image.load("tests/bmp/basic1.bmp", &allocator);
     try image.write_BMP("v5.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {

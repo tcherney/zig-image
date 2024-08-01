@@ -15,6 +15,34 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const bmp_lib = b.addStaticLibrary(.{
+        .name = "bmp_image",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
+        .root_source_file = b.path("src/bmp_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // This declares intent for the library to be installed into the standard
+    // location when the user invokes the "install" step (the default step when
+    // running `zig build`).
+    b.installArtifact(bmp_lib);
+
+    const png_lib = b.addStaticLibrary(.{
+        .name = "png_image",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
+        .root_source_file = b.path("src/png_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // This declares intent for the library to be installed into the standard
+    // location when the user invokes the "install" step (the default step when
+    // running `zig build`).
+    b.installArtifact(png_lib);
+
     const jpeg_lib = b.addStaticLibrary(.{
         .name = "jpeg_image",
         // In this case the main source file is merely a path, however, in more
@@ -80,6 +108,26 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
+    const bmp_lib_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/bmp_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_bmp_lib_unit_tests = b.addRunArtifact(bmp_lib_unit_tests);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const png_lib_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/png_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_png_lib_unit_tests = b.addRunArtifact(png_lib_unit_tests);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
     const jpeg_lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/jpeg_image.zig"),
         .target = target,
@@ -110,6 +158,8 @@ pub fn build(b: *std.Build) void {
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_bmp_lib_unit_tests.step);
+    test_step.dependOn(&run_png_lib_unit_tests.step);
     test_step.dependOn(&run_jpeg_lib_unit_tests.step);
     test_step.dependOn(&run_image_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
