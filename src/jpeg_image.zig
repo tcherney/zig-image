@@ -1192,7 +1192,7 @@ pub const JPEGImage = struct {
         }
         try image_file.writeAll(buffer);
     }
-    pub fn get(self: *JPEGImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *const JPEGImage, x: usize, y: usize) *utils.Pixel(u8) {
         return &self.data.?.items[y * self.width + x];
     }
     pub fn load_JPEG(self: *JPEGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {

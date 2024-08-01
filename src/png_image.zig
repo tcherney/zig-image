@@ -720,7 +720,7 @@ pub const PNGImage = struct {
         self._loaded = true;
     }
 
-    pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *const PNGImage, x: usize, y: usize) *utils.Pixel(u8) {
         return &self.data.items[y * self.width + x];
     }
 

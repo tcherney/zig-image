@@ -106,7 +106,7 @@ pub const BMPImage = struct {
         self._loaded = true;
     }
 
-    pub fn get(self: *BMPImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *const BMPImage, x: usize, y: usize) *utils.Pixel(u8) {
         return &self.data.items[y * self.width + x];
     }
 
@@ -143,6 +143,7 @@ pub const BMPImage = struct {
                             _ = try self._file_data.read_byte();
                         }
                     },
+                    //TODO support other compression types
                     else => return BMPImage_Error.UNSUPPORTED_COMPRESSION_METHOD,
                 }
             }
