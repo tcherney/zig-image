@@ -24,7 +24,7 @@ pub fn sample_pixel(im: anytype, i: usize, j: usize, num_samples: u32) Error!f32
     return sample;
 }
 
-pub fn img2ascii(comptime T: type, im: *image.Image(T), file_name: []const u8, alloc: *std.mem.Allocator) ![]u8 {
+pub fn img2ascii(comptime T: type, im: *image.Image(T), ascii_height: u32, file_name: []const u8, alloc: *std.mem.Allocator) ![]u8 {
     if (T == image.JPEGImage or T == image.PNGImage or T == image.BMPImage) {
         try im.load(file_name, alloc);
     } else {
@@ -33,10 +33,10 @@ pub fn img2ascii(comptime T: type, im: *image.Image(T), file_name: []const u8, a
     try im.convert_grayscale();
     defer im.deinit();
     var sample: u32 = 1;
-    if ((im.height) > 50) {
+    if ((im.height) > ascii_height) {
         sample = 2;
     }
-    while ((im.height / sample) > 50) {
+    while ((im.height / sample) > ascii_height) {
         sample += 2;
     }
     std.debug.print("sample rate {d}\n", .{sample});
@@ -72,8 +72,12 @@ pub fn main() !void {
     var allocator = gpa.allocator();
     const argsv = try std.process.argsAlloc(allocator);
     var ascii_image: []u8 = undefined;
+    var ascii_height: u32 = 100;
     if (argsv.len > 1) {
-        if (argsv.len == 2) {
+        if (argsv.len == 3) {
+            ascii_height = try std.fmt.parseInt(u32, argsv[2], 10);
+        }
+        if (argsv.len >= 2) {
             if (argsv[1].len < 3) {
                 try stdout.print("Image must be .jpg/.png/.bmp\n", .{});
                 try bw.flush();
@@ -82,26 +86,26 @@ pub fn main() !void {
                 const extension = argsv[1][argsv[1].len - 3 ..];
                 if (std.mem.eql(u8, extension, "jpg")) {
                     var im = image.Image(image.JPEGImage){};
-                    ascii_image = try img2ascii(image.JPEGImage, &im, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.JPEGImage, &im, ascii_height, argsv[1], &allocator);
                 } else if (std.mem.eql(u8, extension, "bmp")) {
                     var im = image.Image(image.BMPImage){};
-                    ascii_image = try img2ascii(image.BMPImage, &im, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.BMPImage, &im, ascii_height, argsv[1], &allocator);
                 } else if (std.mem.eql(u8, extension, "png")) {
                     var im = image.Image(image.PNGImage){};
-                    ascii_image = try img2ascii(image.PNGImage, &im, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, argsv[1], &allocator);
                 } else {
                     try stdout.print("Image must be .jpg/.png/.bmp\n", .{});
                     try bw.flush();
                 }
             }
         } else {
-            try stdout.print("Usage: {s} image_file\n", .{argsv[0]});
+            try stdout.print("Usage: {s} image_file ascii_height\n", .{argsv[0]});
             try bw.flush();
         }
     } else {
         var im = image.Image(image.PNGImage){};
         const file_name: []const u8 = "tests/png/shield.png";
-        ascii_image = try img2ascii(image.PNGImage, &im, file_name, &allocator);
+        ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, file_name, &allocator);
     }
     try stdout.print("{s}\n", .{ascii_image});
     try bw.flush(); // don't forget to flush!

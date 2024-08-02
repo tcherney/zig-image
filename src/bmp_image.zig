@@ -96,7 +96,7 @@ pub const BMPImage = struct {
     pub fn load(self: *BMPImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.BitReader{};
-        try self._file_data.init_file(file_name, self._allocator, .{ .little_endian = true });
+        try self._file_data.init(.{ .file_name = file_name, .allocator = self._allocator, .little_endian = true });
         std.debug.print("reading bmp\n", .{});
         try self.read_BMP_header();
         try self.read_DIB_header();

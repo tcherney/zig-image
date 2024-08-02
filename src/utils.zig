@@ -116,17 +116,24 @@ pub const ByteStream = struct {
     _buffer: []u8 = undefined,
     _allocator: *std.mem.Allocator = undefined,
     _own_data: bool = false,
-    pub fn init_file(self: *ByteStream, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        self._allocator = allocator;
-        self._own_data = true;
-        const _file = try std.fs.cwd().openFile(file_name, .{});
-        defer _file.close();
-        const size_limit = std.math.maxInt(u32);
-        self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
-        self._index = 0;
-    }
-    pub fn init(self: *ByteStream, data: []u8) void {
-        self._buffer = data;
+    pub fn init(self: *ByteStream, options: anytype) !void {
+        const ArgsType = @TypeOf(options);
+        const args_type_info = @typeInfo(ArgsType);
+        if (args_type_info != .Struct) {
+            return BitReader_Error.INVALID_ARGS;
+        }
+        if (@hasField(ArgsType, "data")) {
+            self._buffer = @field(options, "data");
+        } else if (@hasField(ArgsType, "file_name") and @hasField(ArgsType, "allocator")) {
+            self._allocator = @field(options, "allocator");
+            self._own_data = true;
+            const _file = try std.fs.cwd().openFile(@field(options, "file_name"), .{});
+            defer _file.close();
+            const size_limit = std.math.maxInt(u32);
+            self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
+        } else {
+            return BitReader_Error.INVALID_ARGS;
+        }
     }
     pub fn deinit(self: *ByteStream) void {
         if (self._own_data) {
@@ -167,24 +174,17 @@ pub const BitReader = struct {
     _little_endian: bool = false,
     _reverse_bit_order: bool = false,
     const Self = @This();
-    pub fn init(self: *Self, data: []u8, options: anytype) !void {
+
+    pub fn init(self: *Self, options: anytype) !void {
         self._byte_stream = ByteStream{};
-        self._byte_stream.init(data);
+        try self._byte_stream.init(options);
         try self.set_options(options);
     }
-    pub fn init_file(self: *Self, file_name: []const u8, allocator: *std.mem.Allocator, options: anytype) !void {
-        self._byte_stream = ByteStream{};
-        try self._byte_stream.init_file(file_name, allocator);
-        try self.set_options(options);
-    }
+
     pub fn set_options(self: *Self, options: anytype) BitReader_Error!void {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
-            return BitReader_Error.INVALID_ARGS;
-        }
-        const fields_info = args_type_info.Struct.fields;
-        if (fields_info.len >= 3) {
             return BitReader_Error.INVALID_ARGS;
         }
 

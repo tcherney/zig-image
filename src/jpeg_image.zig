@@ -1197,7 +1197,7 @@ pub const JPEGImage = struct {
     }
     pub fn load(self: *JPEGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         var bit_reader: utils.BitReader = utils.BitReader{};
-        try bit_reader.init_file(file_name, allocator, .{ .jpeg_filter = true });
+        try bit_reader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
         self._allocator = allocator;
         try self._read_JPEG(&bit_reader);
         std.debug.print("finished reading jpeg\n", .{});

@@ -192,7 +192,7 @@ pub const PNGImage = struct {
     }
     fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream_Error || Error || utils.BitReader_Error)!std.ArrayList(u8) {
         var bit_reader: utils.BitReader = utils.BitReader{};
-        try bit_reader.init(self._idat_data, .{ .reverse_bit_order = true, .little_endian = true });
+        try bit_reader.init(.{ .data = self._idat_data, .reverse_bit_order = true, .little_endian = true });
         std.debug.print("idat data len {d}\n", .{self._idat_data.len});
         defer bit_reader.deinit();
         const CMF = try bit_reader.read_byte();
@@ -706,13 +706,12 @@ pub const PNGImage = struct {
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
         self._allocator = allocator;
         self._file_data = utils.ByteStream{};
-        try self._file_data.init_file(file_name, self._allocator);
+        try self._file_data.init(.{ .file_name = file_name, .allocator = self._allocator });
         std.debug.print("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
         try self.handle_chunks();
         var ret: std.ArrayList(u8) = try self.decompress();
-        std.debug.print("filter type sanity {d}\n", .{ret.items[0]});
         std.debug.print("uncompressed bytes {d}\n", .{ret.items.len});
         try self.data_stream_to_rgb(&ret);
         std.debug.print("num pixels {d}\n", .{self.data.items.len});
