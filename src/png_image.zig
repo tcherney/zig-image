@@ -66,7 +66,7 @@ const Chunk = struct {
         self._allocator = allocator;
     }
 
-    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) (std.mem.Allocator.Error || utils.ByteStream_Error)!void {
+    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) (std.mem.Allocator.Error || utils.ByteStream.Error)!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("length {d}\n", .{self.length});
         self._data = try self._allocator.alloc(u8, self.length + 4);
@@ -127,7 +127,7 @@ pub const PNGImage = struct {
     _idat_data: []u8 = undefined,
     _idat_data_len: usize = 0,
 
-    fn read_chucks(self: *PNGImage) (utils.ByteStream_Error || Error || std.mem.Allocator.Error)!void {
+    fn read_chucks(self: *PNGImage) (utils.ByteStream.Error || Error || std.mem.Allocator.Error)!void {
         self._chunks = std.ArrayList(Chunk).init(self._allocator.*);
         while (self._file_data.getPos() != self._file_data.getEndPos()) {
             var chunk: Chunk = Chunk{};
@@ -180,7 +180,7 @@ pub const PNGImage = struct {
         self.interlace_method = chunk.chunk_data[12];
         std.debug.print("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
     }
-    fn read_sig(self: *PNGImage) (utils.ByteStream_Error || Error)!void {
+    fn read_sig(self: *PNGImage) (utils.ByteStream.Error || Error)!void {
         std.debug.print("reading signature\n", .{});
         const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
         for (signature) |sig| {
@@ -190,7 +190,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream_Error || Error || utils.BitReader_Error)!std.ArrayList(u8) {
+    fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream.Error || Error || utils.BitReader.Error)!std.ArrayList(u8) {
         var bit_reader: utils.BitReader = utils.BitReader{};
         try bit_reader.init(.{ .data = self._idat_data, .reverse_bit_order = true, .little_endian = true });
         std.debug.print("idat data len {d}\n", .{self._idat_data.len});
@@ -220,7 +220,7 @@ pub const PNGImage = struct {
         ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 24;
         return ret;
     }
-    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || Error)!std.ArrayList(u8) {
+    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader.Error || utils.ByteStream.Error || Error)!std.ArrayList(u8) {
         var BFINAL: u32 = 0;
         var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self._allocator.*);
         while (BFINAL == 0) {
@@ -247,7 +247,7 @@ pub const PNGImage = struct {
         }
         return node.symbol;
     }
-    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader_Error || utils.ByteStream_Error || Error)!void {
+    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader.Error || utils.ByteStream.Error || Error)!void {
         std.debug.print("inflate no compression\n", .{});
         const LEN = try bit_reader.read_word();
         std.debug.print("LEN {d}\n", .{LEN});

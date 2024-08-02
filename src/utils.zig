@@ -107,20 +107,20 @@ pub fn HuffmanTree(comptime T: type) type {
     };
 }
 
-pub const ByteStream_Error = error{
-    OUT_OF_BOUNDS,
-};
-
 pub const ByteStream = struct {
     _index: usize = 0,
     _buffer: []u8 = undefined,
     _allocator: *std.mem.Allocator = undefined,
     _own_data: bool = false,
+    pub const Error = error{
+        OUT_OF_BOUNDS,
+        INVALID_ARGS,
+    };
     pub fn init(self: *ByteStream, options: anytype) !void {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
-            return BitReader_Error.INVALID_ARGS;
+            return Error.INVALID_ARGS;
         }
         if (@hasField(ArgsType, "data")) {
             self._buffer = @field(options, "data");
@@ -132,7 +132,7 @@ pub const ByteStream = struct {
             const size_limit = std.math.maxInt(u32);
             self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
         } else {
-            return BitReader_Error.INVALID_ARGS;
+            return Error.INVALID_ARGS;
         }
     }
     pub fn deinit(self: *ByteStream) void {
@@ -146,24 +146,19 @@ pub const ByteStream = struct {
     pub fn getEndPos(self: *ByteStream) usize {
         return self._buffer.len - 1;
     }
-    pub fn peek(self: *ByteStream) ByteStream_Error!u8 {
+    pub fn peek(self: *ByteStream) Error!u8 {
         if (self._index > self._buffer.len - 1) {
-            return ByteStream_Error.OUT_OF_BOUNDS;
+            return Error.OUT_OF_BOUNDS;
         }
         return self._buffer[self._index];
     }
-    pub fn readByte(self: *ByteStream) ByteStream_Error!u8 {
+    pub fn readByte(self: *ByteStream) Error!u8 {
         if (self._index > self._buffer.len - 1) {
-            return ByteStream_Error.OUT_OF_BOUNDS;
+            return Error.OUT_OF_BOUNDS;
         }
         self._index += 1;
         return self._buffer[self._index - 1];
     }
-};
-
-pub const BitReader_Error = error{
-    INVALID_READ,
-    INVALID_ARGS,
 };
 
 pub const BitReader = struct {
@@ -174,6 +169,10 @@ pub const BitReader = struct {
     _little_endian: bool = false,
     _reverse_bit_order: bool = false,
     const Self = @This();
+    pub const Error = error{
+        INVALID_READ,
+        INVALID_ARGS,
+    };
 
     pub fn init(self: *Self, options: anytype) !void {
         self._byte_stream = ByteStream{};
@@ -181,11 +180,11 @@ pub const BitReader = struct {
         try self.set_options(options);
     }
 
-    pub fn set_options(self: *Self, options: anytype) BitReader_Error!void {
+    pub fn set_options(self: *Self, options: anytype) Error!void {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
-            return BitReader_Error.INVALID_ARGS;
+            return Error.INVALID_ARGS;
         }
 
         self._little_endian = if (@hasField(ArgsType, "little_endian")) @field(options, "little_endian") else false;
@@ -198,11 +197,11 @@ pub const BitReader = struct {
     pub fn has_bits(self: *Self) bool {
         return if (self._byte_stream.getPos() != self._byte_stream.getEndPos()) true else false;
     }
-    pub fn read_byte(self: *Self) ByteStream_Error!u8 {
+    pub fn read_byte(self: *Self) ByteStream.Error!u8 {
         self.next_bit = 0;
         return try self._byte_stream.readByte();
     }
-    pub fn read_word(self: *Self) (BitReader_Error || ByteStream_Error)!u16 {
+    pub fn read_word(self: *Self) (Error || ByteStream.Error)!u16 {
         self.next_bit = 0;
         var ret_word: u16 = @as(u16, try self._byte_stream.readByte());
         if (self._little_endian) {
@@ -214,7 +213,7 @@ pub const BitReader = struct {
 
         return ret_word;
     }
-    pub fn read_int(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
+    pub fn read_int(self: *Self) (Error || ByteStream.Error)!u32 {
         self.next_bit = 0;
         var ret_int: u32 = @as(u32, try self._byte_stream.readByte());
         if (self._little_endian) {
@@ -230,11 +229,11 @@ pub const BitReader = struct {
 
         return ret_int;
     }
-    pub fn read_bit(self: *Self) (BitReader_Error || ByteStream_Error)!u32 {
+    pub fn read_bit(self: *Self) (Error || ByteStream.Error)!u32 {
         var bit: u32 = undefined;
         if (self.next_bit == 0) {
             if (!self.has_bits()) {
-                return BitReader_Error.INVALID_READ;
+                return Error.INVALID_READ;
             }
             self.next_byte = try self._byte_stream.readByte();
             if (self._jpeg_filter) {
@@ -251,7 +250,7 @@ pub const BitReader = struct {
                         _ = try self._byte_stream.readByte();
                         self.next_byte = try self._byte_stream.readByte();
                     } else {
-                        return BitReader_Error.INVALID_READ;
+                        return Error.INVALID_READ;
                     }
                 }
             }
@@ -265,7 +264,7 @@ pub const BitReader = struct {
         self.next_bit = (self.next_bit + 1) % 8;
         return bit;
     }
-    pub fn read_bits(self: *Self, length: u32) (BitReader_Error || ByteStream_Error)!u32 {
+    pub fn read_bits(self: *Self, length: u32) (Error || ByteStream.Error)!u32 {
         var bits: u32 = 0;
         for (0..length) |i| {
             const bit = try self.read_bit();

@@ -110,7 +110,7 @@ pub const BMPImage = struct {
         return &self.data.items[y * self.width + x];
     }
 
-    fn read_color_data(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_color_data(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         const padding_size = self.width % 4;
         var i: usize = self.height - 1;
         var j: usize = 0;
@@ -155,7 +155,7 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_DIB_V2_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_V2_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         try self.read_DIB_V1_header();
         self._dib_file_header.red_mask = try self._file_data.read_int();
         self._dib_file_header.green_mask = try self._file_data.read_int();
@@ -163,13 +163,13 @@ pub const BMPImage = struct {
         std.debug.print("red mask {d}, green mask {d}, blue mask {d}\n", .{ self._dib_file_header.red_mask, self._dib_file_header.green_mask, self._dib_file_header.blue_mask });
     }
 
-    fn read_DIB_V3_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_V3_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         try self.read_DIB_V2_header();
         self._dib_file_header.alpha_mask = try self._file_data.read_int();
         std.debug.print("alpha mask {d}\n", .{self._dib_file_header.alpha_mask});
     }
 
-    fn read_DIB_V4_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_V4_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         try self.read_DIB_V3_header();
         self._dib_file_header.color_space_type = try self._file_data.read_int();
         self._dib_file_header.ciexyz = BMPDIBHeader.CIEXYZ{};
@@ -193,7 +193,7 @@ pub const BMPImage = struct {
         self._dib_file_header.gamma_blue = try self._file_data.read_int();
     }
 
-    fn read_DIB_V5_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_V5_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         try self.read_DIB_V4_header();
         self._dib_file_header.intent = try self._file_data.read_int();
         self._dib_file_header.profile_data = try self._file_data.read_int();
@@ -201,7 +201,7 @@ pub const BMPImage = struct {
         self._dib_file_header.reserved = try self._file_data.read_int();
     }
 
-    fn read_DIB_V1_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_V1_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         self.width = try self._file_data.read_int();
         self.height = try self._file_data.read_int();
         self._dib_file_header.color_planes = try self._file_data.read_word();
@@ -218,7 +218,7 @@ pub const BMPImage = struct {
         std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self._dib_file_header.color_planes, self._dib_file_header.bpp, self._dib_file_header.compression_method, self._dib_file_header.image_size, self._dib_file_header.horizontal_res, self._dib_file_header.vertical_res, self._dib_file_header.num_col_palette, self._dib_file_header.important_colors });
     }
 
-    fn read_DIB_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_DIB_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         self._dib_file_header = BMPDIBHeader{};
         self._dib_file_header.size = try self._file_data.read_int();
         std.debug.print("header_size {d}\n", .{self._dib_file_header.size});
@@ -252,7 +252,7 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_BMP_header(self: *BMPImage) (utils.ByteStream_Error || utils.BitReader_Error || Error)!void {
+    fn read_BMP_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
         // type
         self._bmp_file_header.bmp_type[0] = try self._file_data.read_byte();
         self._bmp_file_header.bmp_type[1] = try self._file_data.read_byte();
