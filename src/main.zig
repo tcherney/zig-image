@@ -1,23 +1,26 @@
 const std = @import("std");
 const image = @import("image.zig");
 
-const ASCII_CHARS = [_]u8{ ' ', '.', '*', '%', '$', '#' };
+const ASCII_CHARS = [_]u8{ ' ', '.', ':', 'c', 'o', '?', 'P', 'O', '#', '@' };
 
 const Error = error{
     INVALID_ARG,
     SAMPLE_ERROR,
 };
 
-pub fn sample_pixel(im: anytype, i: usize, j: usize, num_samples: comptime_int) Error!f32 {
-    if (num_samples % 2 != 0) {
+pub fn sample_pixel(im: anytype, i: usize, j: usize, num_samples: u32) Error!f32 {
+    if (num_samples % 2 != 0 and num_samples != 1) {
         return Error.SAMPLE_ERROR;
     }
+    //TODO improve sample method
     var sample: f32 = (@as(f32, @floatFromInt(im.get(j, i).r)) / 255.0);
-    for (1..(num_samples / 2) + 1) |k| {
-        sample += if (j + k >= im.width) 0 else (@as(f32, @floatFromInt(im.get(j + k, i).r)) / 255.0);
-        sample += if (i + k >= im.height) 0 else (@as(f32, @floatFromInt(im.get(j, i + k).r)) / 255.0);
+    if (num_samples > 1) {
+        for (1..(num_samples / 2) + 1) |k| {
+            sample += if (j + k >= im.width) 0 else (@as(f32, @floatFromInt(im.get(j + k, i).r)) / 255.0);
+            sample += if (i + k >= im.height) 0 else (@as(f32, @floatFromInt(im.get(j, i + k).r)) / 255.0);
+        }
+        sample /= @as(f32, @floatFromInt(num_samples)) + 1;
     }
-    sample /= num_samples + 1;
     return sample;
 }
 
@@ -29,32 +32,28 @@ pub fn img2ascii(comptime T: type, im: *image.Image(T), file_name: []const u8, a
     }
     try im.convert_grayscale();
     defer im.deinit();
-    const SAMPLE = 8;
-    const SCALE = 1.0 / @as(f32, @floatCast(SAMPLE));
+    var sample: u32 = 1;
+    if ((im.height) > 50) {
+        sample = 2;
+    }
+    while ((im.height / sample) > 50) {
+        sample += 2;
+    }
+    std.debug.print("sample rate {d}\n", .{sample});
+    const SCALE = 1.0 / @as(f32, @floatFromInt(sample));
     var ascii_pixels: []u8 = try alloc.alloc(u8, im.height + @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(im.width)) * @as(f32, @floatFromInt(im.height)) * SCALE))));
     for (ascii_pixels) |*pix| {
         pix.* = ' ';
     }
-    const ascii_seperation = 1.0 / @as(f32, @floatFromInt(ASCII_CHARS.len));
     var ascii_index: usize = 0;
     var i: usize = 0;
     var j: usize = 0;
-    while (i < im.height) : (i += SAMPLE) {
-        while (j < im.width) : (j += SAMPLE) {
-            const pixel_value = try sample_pixel(im, i, j, SAMPLE);
-            if (pixel_value < ascii_seperation) {
-                ascii_pixels[ascii_index] = ASCII_CHARS[0];
-            } else if (pixel_value < ascii_seperation * 2) {
-                ascii_pixels[ascii_index] = ASCII_CHARS[1];
-            } else if (pixel_value < ascii_seperation * 3) {
-                ascii_pixels[ascii_index] = ASCII_CHARS[2];
-            } else if (pixel_value < ascii_seperation * 4) {
-                ascii_pixels[ascii_index] = ASCII_CHARS[3];
-            } else if (pixel_value < ascii_seperation * 5) {
-                ascii_pixels[ascii_index] = ASCII_CHARS[5];
-            } else {
-                ascii_pixels[ascii_index] = ASCII_CHARS[5];
-            }
+    while (i < im.height) : (i += sample) {
+        while (j < im.width) : (j += sample) {
+            const pixel_value = try sample_pixel(im, i, j, sample);
+            var ascii_char_index: usize = @as(usize, @intFromFloat(pixel_value * @as(f32, @floatFromInt(ASCII_CHARS.len))));
+            ascii_char_index = if (ascii_char_index >= ASCII_CHARS.len) ASCII_CHARS.len - 1 else ascii_char_index;
+            ascii_pixels[ascii_index] = ASCII_CHARS[ascii_char_index];
             ascii_index += 1;
         }
         j = 0;
