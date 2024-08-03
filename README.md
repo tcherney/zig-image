@@ -8,3 +8,5 @@
 - [x] Handle PNG images
 - [x] Handle BMP images
 - [x] Convert image to ascii to display on terminal
+
+![img2ascii](/img2ascii.png)
