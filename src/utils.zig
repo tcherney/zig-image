@@ -1,5 +1,14 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
+var timer: std.time.Timer = undefined;
+pub fn timer_start() !void {
+    timer = try std.time.Timer.start();
+}
+
+pub fn timer_end() void {
+    std.debug.print("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
+    timer.reset();
+}
 
 pub fn Pixel(comptime T: type) type {
     return struct {

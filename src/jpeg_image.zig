@@ -200,6 +200,12 @@ fn Block(comptime T: type) type {
     };
 }
 
+fn thread_compute(self: *JPEGImage, start: usize, block_height: u32) !void {
+    try self._de_quant_data(start, block_height);
+    self._inverse_dct(start, block_height);
+    self._ycb_rgb(start, block_height);
+}
+
 pub const JPEGImage = struct {
     data: ?std.ArrayList(utils.Pixel(u8)) = null,
     _quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
@@ -871,11 +877,11 @@ pub const JPEGImage = struct {
             }
         }
     }
-    fn _de_quant_data(self: *JPEGImage) !void {
-        var y: usize = 0;
+    fn _de_quant_data(self: *JPEGImage, start: usize, block_height: u32) !void {
+        var y: usize = start;
         var x: usize = 0;
         std.debug.print("sampling factor {d} {d}\n", .{ self.vertical_sampling_factor, self.horizontal_sampling_factor });
-        while (y < self._block_height) : (y += self.vertical_sampling_factor) {
+        while (y < block_height) : (y += self.vertical_sampling_factor) {
             while (x < self._block_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
@@ -1030,10 +1036,10 @@ pub const JPEGImage = struct {
             block[i * 8 + 7] = @as(i32, @intFromFloat(b0 - b7 + 0.5));
         }
     }
-    fn _inverse_dct(self: *JPEGImage) void {
-        var y: usize = 0;
+    fn _inverse_dct(self: *JPEGImage, start: usize, block_height: u32) void {
+        var y: usize = start;
         var x: usize = 0;
-        while (y < self._block_height) : (y += self.vertical_sampling_factor) {
+        while (y < block_height) : (y += self.vertical_sampling_factor) {
             while (x < self._block_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
                     for (0..self._color_components[j].vertical_sampling_factor) |v| {
@@ -1085,10 +1091,10 @@ pub const JPEGImage = struct {
             if (y == 0) break;
         }
     }
-    fn _ycb_rgb(self: *JPEGImage) void {
-        var y: usize = 0;
+    fn _ycb_rgb(self: *JPEGImage, start: usize, block_height: u32) void {
+        var y: usize = start;
         var x: usize = 0;
-        while (y < self._block_height) : (y += self.vertical_sampling_factor) {
+        while (y < block_height) : (y += self.vertical_sampling_factor) {
             while (x < self._block_width) : (x += self.horizontal_sampling_factor) {
                 const cbcr: *Block(i32) = &self._blocks[y * self._block_width_real + x];
                 var v: usize = self.vertical_sampling_factor - 1;
@@ -1106,12 +1112,33 @@ pub const JPEGImage = struct {
             x = 0;
         }
     }
+
     fn _gen_rgb_data(self: *JPEGImage) !void {
         self.data = std.ArrayList(utils.Pixel(u8)).init(self._allocator.*);
         defer self._allocator.free(self._blocks);
-        try self._de_quant_data();
-        self._inverse_dct();
-        self._ycb_rgb();
+        // single thread
+        // try utils.timer_start();
+        // try self._de_quant_data(0, self._block_height);
+        // self._inverse_dct(0, self._block_height);
+        // self._ycb_rgb(0, self._block_height);
+        // utils.timer_end();
+
+        // multi thread
+        try utils.timer_start();
+        const num_threads = 8;
+        const data_split = if (self._block_height % 2 == 1) (self._block_height / num_threads) - 1 else self._block_height / num_threads;
+        var threads: [num_threads]std.Thread = undefined;
+        for (0..num_threads) |i| {
+            threads[i] = try std.Thread.spawn(.{}, thread_compute, .{
+                self,
+                i * data_split,
+                @as(u32, @intCast((i + 1) * data_split)),
+            });
+        }
+        for (threads) |thread| {
+            thread.join();
+        }
+        utils.timer_end();
 
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = 0;
