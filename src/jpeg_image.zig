@@ -880,7 +880,7 @@ pub const JPEGImage = struct {
     fn _de_quant_data(self: *JPEGImage, start: usize, block_height: u32) !void {
         var y: usize = start;
         var x: usize = 0;
-        std.debug.print("sampling factor {d} {d}\n", .{ self.vertical_sampling_factor, self.horizontal_sampling_factor });
+        //std.debug.print("sampling factor {d} {d}\n", .{ self.vertical_sampling_factor, self.horizontal_sampling_factor });
         while (y < block_height) : (y += self.vertical_sampling_factor) {
             while (x < self._block_width) : (x += self.horizontal_sampling_factor) {
                 for (0..self._num_components) |j| {
@@ -1116,28 +1116,34 @@ pub const JPEGImage = struct {
     fn _gen_rgb_data(self: *JPEGImage) !void {
         self.data = std.ArrayList(utils.Pixel(u8)).init(self._allocator.*);
         defer self._allocator.free(self._blocks);
-        // single thread
-        // try utils.timer_start();
-        // try self._de_quant_data(0, self._block_height);
-        // self._inverse_dct(0, self._block_height);
-        // self._ycb_rgb(0, self._block_height);
-        // utils.timer_end();
 
-        // multi thread
+        std.debug.print("block height {d}\n", .{self._block_height});
         try utils.timer_start();
-        const num_threads = 8;
-        const data_split = if (self._block_height % 2 == 1) (self._block_height / num_threads) - 1 else self._block_height / num_threads;
-        var threads: [num_threads]std.Thread = undefined;
-        for (0..num_threads) |i| {
-            threads[i] = try std.Thread.spawn(.{}, thread_compute, .{
-                self,
-                i * data_split,
-                @as(u32, @intCast((i + 1) * data_split)),
-            });
+        var num_threads: usize = 10;
+        while (num_threads > 0 and (self._block_height / num_threads) < num_threads) {
+            num_threads -= 2;
         }
-        for (threads) |thread| {
-            thread.join();
+        std.debug.print("running on {d} threads\n", .{num_threads});
+        if (num_threads == 0) {
+            // single thread
+            try thread_compute(self, 0, self._block_height);
+        } else {
+            // multi thread
+            const data_split = if (self._block_height % 2 == 1) (self._block_height / num_threads) - 1 else self._block_height / num_threads;
+            var threads: []std.Thread = try self._allocator.alloc(std.Thread, num_threads);
+            for (0..num_threads) |i| {
+                threads[i] = try std.Thread.spawn(.{}, thread_compute, .{
+                    self,
+                    i * data_split,
+                    @as(u32, @intCast((i + 1) * data_split)),
+                });
+            }
+            for (threads) |thread| {
+                thread.join();
+            }
+            self._allocator.free(threads);
         }
+
         utils.timer_end();
 
         // store color data to be used later in either writing to another file or direct access in code
