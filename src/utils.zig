@@ -125,24 +125,32 @@ pub const ByteStream = struct {
         OUT_OF_BOUNDS,
         INVALID_ARGS,
     };
-    pub fn init(self: *ByteStream, options: anytype) !void {
+    pub fn init(options: anytype) !ByteStream {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
             return Error.INVALID_ARGS;
         }
+        var _buffer: []u8 = undefined;
+        var _allocator: *std.mem.Allocator = undefined;
+        var _own_data: bool = false;
         if (@hasField(ArgsType, "data")) {
-            self._buffer = @field(options, "data");
+            _buffer = @field(options, "data");
         } else if (@hasField(ArgsType, "file_name") and @hasField(ArgsType, "allocator")) {
-            self._allocator = @field(options, "allocator");
-            self._own_data = true;
+            _allocator = @field(options, "allocator");
+            _own_data = true;
             const _file = try std.fs.cwd().openFile(@field(options, "file_name"), .{});
             defer _file.close();
             const size_limit = std.math.maxInt(u32);
-            self._buffer = try _file.readToEndAlloc(self._allocator.*, size_limit);
+            _buffer = try _file.readToEndAlloc(_allocator.*, size_limit);
         } else {
             return Error.INVALID_ARGS;
         }
+        return ByteStream{
+            ._buffer = _buffer,
+            ._allocator = _allocator,
+            ._own_data = _own_data,
+        };
     }
     pub fn deinit(self: *ByteStream) void {
         if (self._own_data) {
@@ -183,10 +191,11 @@ pub const BitReader = struct {
         INVALID_ARGS,
     };
 
-    pub fn init(self: *Self, options: anytype) !void {
-        self._byte_stream = ByteStream{};
-        try self._byte_stream.init(options);
-        try self.set_options(options);
+    pub fn init(options: anytype) !BitReader {
+        var bit_reader: BitReader = BitReader{};
+        bit_reader._byte_stream = try ByteStream.init(options);
+        try bit_reader.set_options(options);
+        return bit_reader;
     }
 
     pub fn set_options(self: *Self, options: anytype) Error!void {

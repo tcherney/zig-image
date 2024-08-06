@@ -1229,8 +1229,7 @@ pub const JPEGImage = struct {
         return &self.data.?.items[y * self.width + x];
     }
     pub fn load(self: *JPEGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        var bit_reader: utils.BitReader = utils.BitReader{};
-        try bit_reader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
+        var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
         self._allocator = allocator;
         try self._read_JPEG(&bit_reader);
         std.debug.print("finished reading jpeg\n", .{});
