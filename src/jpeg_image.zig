@@ -1,3 +1,4 @@
+//https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&index=1
 const std = @import("std");
 const utils = @import("utils.zig");
 
