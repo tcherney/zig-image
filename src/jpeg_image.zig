@@ -1117,25 +1117,31 @@ pub const JPEGImage = struct {
         self.data = std.ArrayList(utils.Pixel(u8)).init(self._allocator.*);
         defer self._allocator.free(self._blocks);
 
-        std.debug.print("block height {d}\n", .{self._block_height});
+        //std.debug.print("block height {d}\n", .{self._block_height});
         try utils.timer_start();
         var num_threads: usize = 10;
         while (num_threads > 0 and (self._block_height / num_threads) < num_threads) {
             num_threads -= 2;
         }
-        std.debug.print("running on {d} threads\n", .{num_threads});
+        //std.debug.print("running on {d} threads\n", .{num_threads});
         if (num_threads == 0) {
             // single thread
             try thread_compute(self, 0, self._block_height);
         } else {
             // multi thread
-            const data_split = if (self._block_height % 2 == 1) (self._block_height / num_threads) - 1 else self._block_height / num_threads;
+            const data_split = if ((self._block_height / num_threads) % 2 == 1) (self._block_height / num_threads) + 1 else self._block_height / num_threads;
+            //std.debug.print("data split {d} block_height {d}\n", .{ data_split, self._block_height });
             var threads: []std.Thread = try self._allocator.alloc(std.Thread, num_threads);
             for (0..num_threads) |i| {
+                var end: u32 = @as(u32, @intCast((i + 1) * data_split));
+                if (end > self._block_height or i == num_threads - 1) {
+                    end = self._block_height;
+                }
+                //std.debug.print("start {d} end {d}\n", .{ i * data_split, end });
                 threads[i] = try std.Thread.spawn(.{}, thread_compute, .{
                     self,
                     i * data_split,
-                    @as(u32, @intCast((i + 1) * data_split)),
+                    end,
                 });
             }
             for (threads) |thread| {
@@ -1240,18 +1246,18 @@ pub const JPEGImage = struct {
     }
 };
 
-// test "CAT" {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     var allocator = gpa.allocator();
-//     var image = JPEGImage{};
-//     try image.load("tests/jpeg/cat.jpg", &allocator);
-//     try image.convert_grayscale();
-//     try image.write_BMP("cat.bmp");
-//     image.deinit();
-//     if (gpa.deinit() == .leak) {
-//         std.debug.print("Leaked!\n", .{});
-//     }
-// }
+test "CAT" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load("tests/jpeg/cat.jpg", &allocator);
+    try image.convert_grayscale();
+    try image.write_BMP("cat.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.debug.print("Leaked!\n", .{});
+    }
+}
 
 test "GORILLA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
