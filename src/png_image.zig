@@ -56,44 +56,44 @@ fn calc_crc(buf: []u8, length: u32) u32 {
 }
 
 const Chunk = struct {
-    _data: []u8 = undefined,
-    _allocator: *std.mem.Allocator = undefined,
+    data: []u8 = undefined,
+    allocator: std.mem.Allocator = undefined,
     length: u32 = undefined,
     chunk_type: []u8 = undefined,
     chunk_data: []u8 = undefined,
     crc_check: u32 = undefined,
-    pub fn init(self: *Chunk, allocator: *std.mem.Allocator) void {
-        self._allocator = allocator;
+    pub fn init(self: *Chunk, allocator: std.mem.Allocator) void {
+        self.allocator = allocator;
     }
 
     pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) (std.mem.Allocator.Error || utils.ByteStream.Error)!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("length {d}\n", .{self.length});
-        self._data = try self._allocator.alloc(u8, self.length + 4);
-        self._data[0] = try file_data.readByte();
-        self._data[1] = try file_data.readByte();
-        self._data[2] = try file_data.readByte();
-        self._data[3] = try file_data.readByte();
-        self.chunk_type = self._data[0..4];
+        self.data = try self.allocator.alloc(u8, self.length + 4);
+        self.data[0] = try file_data.readByte();
+        self.data[1] = try file_data.readByte();
+        self.data[2] = try file_data.readByte();
+        self.data[3] = try file_data.readByte();
+        self.chunk_type = self.data[0..4];
         std.debug.print("chunk type {s}\n", .{self.chunk_type});
-        for (4..self._data.len) |i| {
-            self._data[i] = try file_data.readByte();
+        for (4..self.data.len) |i| {
+            self.data[i] = try file_data.readByte();
             //std.debug.print("{x} ", .{self._data[i]});
         }
         //std.debug.print("\n", .{});
-        self.chunk_data = self._data[4..self._data.len];
+        self.chunk_data = self.data[4..self.data.len];
         self.crc_check = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("crc {d}\n", .{self.crc_check});
     }
     pub fn verify_crc(self: *Chunk) Error!void {
-        const calced_crc = calc_crc(self._data, @as(u32, @intCast(self._data.len)));
+        const calced_crc = calc_crc(self.data, @as(u32, @intCast(self.data.len)));
         std.debug.print("calculated crc {d}\n", .{calced_crc});
         if (calced_crc != self.crc_check) {
             return Error.INVALID_CRC;
         }
     }
     pub fn deinit(self: *Chunk) void {
-        self._allocator.free(self._data);
+        self.allocator.free(self.data);
     }
 };
 
@@ -110,10 +110,10 @@ const BlockHeight = [_]u8{ 8, 8, 4, 4, 2, 2, 1 };
 const BlockWidth = [_]u8{ 8, 4, 4, 2, 2, 1, 1 };
 
 pub const PNGImage = struct {
-    _file_data: utils.ByteStream = undefined,
-    _allocator: *std.mem.Allocator = undefined,
-    _loaded: bool = false,
-    _chunks: std.ArrayList(Chunk) = undefined,
+    file_data: utils.ByteStream = undefined,
+    allocator: std.mem.Allocator = undefined,
+    loaded: bool = false,
+    chunks: std.ArrayList(Chunk) = undefined,
     data: std.ArrayList(utils.Pixel(u8)) = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
@@ -123,20 +123,20 @@ pub const PNGImage = struct {
     filter_method: u8 = undefined,
     interlace_method: u8 = undefined,
     gamma: f32 = undefined,
-    _plte_data: ?[]u8 = null,
-    _idat_data: []u8 = undefined,
-    _idat_data_len: usize = 0,
+    plte_data: ?[]u8 = null,
+    idat_data: []u8 = undefined,
+    idat_data_len: usize = 0,
 
     fn read_chucks(self: *PNGImage) (utils.ByteStream.Error || Error || std.mem.Allocator.Error)!void {
-        self._chunks = std.ArrayList(Chunk).init(self._allocator.*);
-        while (self._file_data.getPos() != self._file_data.getEndPos()) {
+        self.chunks = std.ArrayList(Chunk).init(self.allocator);
+        while (self.file_data.getPos() != self.file_data.getEndPos()) {
             var chunk: Chunk = Chunk{};
-            chunk.init(self._allocator);
-            try chunk.read_chunk(&self._file_data);
+            chunk.init(self.allocator);
+            try chunk.read_chunk(&self.file_data);
             try chunk.verify_crc();
-            try self._chunks.append(chunk);
+            try self.chunks.append(chunk);
             if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
-                self._idat_data_len += chunk.chunk_data.len;
+                self.idat_data_len += chunk.chunk_data.len;
             } else if (std.mem.eql(u8, chunk.chunk_type, "IEND")) {
                 break;
             }
@@ -144,13 +144,13 @@ pub const PNGImage = struct {
         std.debug.print("all chunks read\n", .{});
     }
     fn handle_chunks(self: *PNGImage) std.mem.Allocator.Error!void {
-        self._idat_data = try self._allocator.alloc(u8, self._idat_data_len);
+        self.idat_data = try self.allocator.alloc(u8, self.idat_data_len);
         var index: usize = 0;
-        for (self._chunks.items) |*chunk| {
+        for (self.chunks.items) |*chunk| {
             if (std.mem.eql(u8, chunk.chunk_type, "IHDR")) {
                 self.handle_IHDR(chunk);
             } else if (std.mem.eql(u8, chunk.chunk_type, "PLTE")) {
-                self._plte_data = chunk.chunk_data;
+                self.plte_data = chunk.chunk_data;
             } else if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
                 self.handle_IDAT(chunk, &index);
             } else if (std.mem.eql(u8, chunk.chunk_type, "gAMA")) {
@@ -162,11 +162,11 @@ pub const PNGImage = struct {
                 std.debug.print("gamma {d}\n", .{self.gamma});
             }
         }
-        std.debug.print("index = {d}, len = {d}\n", .{ index, self._idat_data_len });
+        std.debug.print("index = {d}, len = {d}\n", .{ index, self.idat_data_len });
     }
     fn handle_IDAT(self: *PNGImage, chunk: *Chunk, index: *usize) void {
         for (chunk.chunk_data) |data| {
-            self._idat_data[index.*] = data;
+            self.idat_data[index.*] = data;
             index.* += 1;
         }
     }
@@ -184,15 +184,15 @@ pub const PNGImage = struct {
         std.debug.print("reading signature\n", .{});
         const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
         for (signature) |sig| {
-            const current = try self._file_data.readByte();
+            const current = try self.file_data.readByte();
             if (current != sig) {
                 return Error.INVALID_SIGNATURE;
             }
         }
     }
     fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream.Error || Error || utils.BitReader.Error)!std.ArrayList(u8) {
-        var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .data = self._idat_data, .reverse_bit_order = true, .little_endian = true });
-        std.debug.print("idat data len {d}\n", .{self._idat_data.len});
+        var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .data = self.idat_data, .reverse_bit_order = true, .little_endian = true });
+        std.debug.print("idat data len {d}\n", .{self.idat_data.len});
         defer bit_reader.deinit();
         const CMF = try bit_reader.read_byte();
         const CM = CMF & 0xF;
@@ -221,7 +221,7 @@ pub const PNGImage = struct {
     }
     fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader.Error || utils.ByteStream.Error || Error)!std.ArrayList(u8) {
         var BFINAL: u32 = 0;
-        var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self._allocator.*);
+        var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self.allocator);
         while (BFINAL == 0) {
             BFINAL = try bit_reader.read_bit();
             const BTYPE = try bit_reader.read_bits(2);
@@ -258,8 +258,8 @@ pub const PNGImage = struct {
     }
     fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) !*utils.HuffmanTree(u16) {
         const MAX_BITS = try utils.max_array(u16, bit_length_list);
-        var bl_count: []u16 = try self._allocator.alloc(u16, MAX_BITS + 1);
-        defer self._allocator.free(bl_count);
+        var bl_count: []u16 = try self.allocator.alloc(u16, MAX_BITS + 1);
+        defer self.allocator.free(bl_count);
         for (0..bl_count.len) |i| {
             var sum: u16 = 0;
             for (bit_length_list) |j| {
@@ -269,15 +269,15 @@ pub const PNGImage = struct {
             }
             bl_count[i] = sum;
         }
-        var next_code: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
+        var next_code: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(next_code);
         try next_code.append(0);
         try next_code.append(0);
         for (2..MAX_BITS + 1) |bits| {
             try next_code.append((next_code.items[bits - 1] + bl_count[bits - 1]) << 1);
         }
-        var tree: *utils.HuffmanTree(u16) = try self._allocator.create(utils.HuffmanTree(u16));
-        tree.* = try utils.HuffmanTree(u16).init(self._allocator.*);
+        var tree: *utils.HuffmanTree(u16) = try self.allocator.create(utils.HuffmanTree(u16));
+        tree.* = try utils.HuffmanTree(u16).init(self.allocator);
         const min_len = @min(alphabet.len, bit_length_list.len);
         for (0..min_len) |i| {
             if (bit_length_list[i] != 0) {
@@ -319,7 +319,7 @@ pub const PNGImage = struct {
             alphabet[i] = @as(u16, @intCast(i));
         }
         const code_length_tree = try self.bit_length_list_to_tree(&code_length_bit_list, &alphabet);
-        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
+        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(bit_length_list);
         while (bit_length_list.items.len < HLIT + HDIST) {
             const symbol = try self.decode_symbol(bit_reader, code_length_tree);
@@ -346,7 +346,7 @@ pub const PNGImage = struct {
             }
         }
         code_length_tree.deinit();
-        self._allocator.destroy(code_length_tree);
+        self.allocator.destroy(code_length_tree);
         var literal_length_alphabet: [288]u16 = [_]u16{0} ** 288;
         for (0..literal_length_alphabet.len) |i| {
             literal_length_alphabet[i] = @as(u16, @intCast(i));
@@ -361,7 +361,7 @@ pub const PNGImage = struct {
     }
     fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
         std.debug.print("inflate fixed \n", .{});
-        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self._allocator.*);
+        var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(bit_length_list);
         for (0..144) |_| {
             try bit_length_list.append(8);
@@ -388,18 +388,18 @@ pub const PNGImage = struct {
         var distance_tree = try self.bit_length_list_to_tree(&bit_list_distance, &distance_tree_alphabet);
         try self.inflate_block_data(bit_reader, literal_length_tree, distance_tree, ret);
         literal_length_tree.deinit();
-        self._allocator.destroy(literal_length_tree);
+        self.allocator.destroy(literal_length_tree);
         distance_tree.deinit();
-        self._allocator.destroy(distance_tree);
+        self.allocator.destroy(distance_tree);
     }
     fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
         std.debug.print("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
         trees.literal_length_tree.deinit();
-        self._allocator.destroy(trees.literal_length_tree);
+        self.allocator.destroy(trees.literal_length_tree);
         trees.distance_tree.deinit();
-        self._allocator.destroy(trees.distance_tree);
+        self.allocator.destroy(trees.distance_tree);
     }
     fn paeth_predictor(_: *PNGImage, a: u8, b: u8, c: u8) u8 {
         //std.debug.print("a {d}, b {d}, c {d}\n", .{ a, b, c });
@@ -633,7 +633,7 @@ pub const PNGImage = struct {
         }
     }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || Error)!void {
-        self.data = try std.ArrayList(utils.Pixel(u8)).initCapacity(self._allocator.*, self.height * self.width);
+        self.data = try std.ArrayList(utils.Pixel(u8)).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         var buffer_index: usize = 0;
         var previous_index: usize = 0;
@@ -691,7 +691,7 @@ pub const PNGImage = struct {
         std.debug.print("index {d}\n", .{buffer_index});
     }
     pub fn convert_grayscale(self: *PNGImage) !void {
-        if (self._loaded) {
+        if (self.loaded) {
             for (0..self.data.items.len) |i| {
                 const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].b)) * 0.1140));
                 self.data.items[i].r = gray;
@@ -702,9 +702,9 @@ pub const PNGImage = struct {
             return Error.NOT_LOADED;
         }
     }
-    pub fn load(self: *PNGImage, file_name: []const u8, allocator: *std.mem.Allocator) !void {
-        self._allocator = allocator;
-        self._file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self._allocator });
+    pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) !void {
+        self.allocator = allocator;
+        self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
         std.debug.print("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
@@ -714,7 +714,7 @@ pub const PNGImage = struct {
         try self.data_stream_to_rgb(&ret);
         std.debug.print("num pixels {d}\n", .{self.data.items.len});
         defer std.ArrayList(u8).deinit(ret);
-        self._loaded = true;
+        self.loaded = true;
     }
 
     pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel(u8) {
@@ -722,7 +722,7 @@ pub const PNGImage = struct {
     }
 
     pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
-        if (!self._loaded) {
+        if (!self.loaded) {
             return Error.NOT_LOADED;
         }
         const image_file = try std.fs.cwd().createFile(file_name, .{});
@@ -732,9 +732,9 @@ pub const PNGImage = struct {
         const padding_size: u32 = self.width % 4;
         const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
 
-        var buffer: []u8 = try self._allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
+        var buffer: []u8 = try self.allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
         var buffer_pos = buffer[0..buffer.len];
-        defer self._allocator.free(buffer);
+        defer self.allocator.free(buffer);
         try utils.write_little_endian(&image_file, 4, size);
         try utils.write_little_endian(&image_file, 4, 0);
         try utils.write_little_endian(&image_file, 4, 0x1A);
@@ -767,21 +767,21 @@ pub const PNGImage = struct {
         try image_file.writeAll(buffer);
     }
     pub fn deinit(self: *PNGImage) void {
-        self._file_data.deinit();
-        for (self._chunks.items) |*chunk| {
+        self.file_data.deinit();
+        for (self.chunks.items) |*chunk| {
             chunk.deinit();
         }
-        std.ArrayList(Chunk).deinit(self._chunks);
-        self._allocator.free(self._idat_data);
+        std.ArrayList(Chunk).deinit(self.chunks);
+        self.allocator.free(self.idat_data);
         std.ArrayList(utils.Pixel(u8)).deinit(self.data);
     }
 };
 
 test "BASIC 8" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn2c08.png", &allocator);
+    try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.write_BMP("basn2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -791,9 +791,9 @@ test "BASIC 8" {
 
 test "BASIC 16" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn2c16.png", &allocator);
+    try image.load("tests/png/basic/basn2c16.png", allocator);
     try image.write_BMP("basn2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -803,9 +803,9 @@ test "BASIC 16" {
 
 test "BASIC NO FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/filtering/f00n2c08.png", &allocator);
+    try image.load("tests/png/filtering/f00n2c08.png", allocator);
     try image.write_BMP("f00n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -815,9 +815,9 @@ test "BASIC NO FILTER" {
 
 test "BASIC SUB FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/filtering/f01n2c08.png", &allocator);
+    try image.load("tests/png/filtering/f01n2c08.png", allocator);
     try image.write_BMP("f01n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -827,9 +827,9 @@ test "BASIC SUB FILTER" {
 
 test "BASIC UP FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/filtering/f02n2c08.png", &allocator);
+    try image.load("tests/png/filtering/f02n2c08.png", allocator);
     try image.write_BMP("f02n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -839,9 +839,9 @@ test "BASIC UP FILTER" {
 
 test "BASIC AVG FILTER" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/filtering/f03n2c08.png", &allocator);
+    try image.load("tests/png/filtering/f03n2c08.png", allocator);
     try image.write_BMP("f03n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -851,9 +851,9 @@ test "BASIC AVG FILTER" {
 
 test "BASIC 8 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn6a08.png", &allocator);
+    try image.load("tests/png/basic/basn6a08.png", allocator);
     try image.write_BMP("basn6a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -863,9 +863,9 @@ test "BASIC 8 ALPHA" {
 
 test "BASIC 16 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn6a16.png", &allocator);
+    try image.load("tests/png/basic/basn6a16.png", allocator);
     try image.write_BMP("basn6a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -875,9 +875,9 @@ test "BASIC 16 ALPHA" {
 
 test "BW" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn0g01.png", &allocator);
+    try image.load("tests/png/basic/basn0g01.png", allocator);
     try image.write_BMP("basn0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -887,9 +887,9 @@ test "BW" {
 
 test "GRAY 2" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn0g02.png", &allocator);
+    try image.load("tests/png/basic/basn0g02.png", allocator);
     try image.write_BMP("basn0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -899,9 +899,9 @@ test "GRAY 2" {
 
 test "GRAY 4" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn0g04.png", &allocator);
+    try image.load("tests/png/basic/basn0g04.png", allocator);
     try image.write_BMP("basn0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -911,9 +911,9 @@ test "GRAY 4" {
 
 test "GRAY 8" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn0g08.png", &allocator);
+    try image.load("tests/png/basic/basn0g08.png", allocator);
     try image.write_BMP("basn0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -923,9 +923,9 @@ test "GRAY 8" {
 
 test "GRAY 16" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn0g16.png", &allocator);
+    try image.load("tests/png/basic/basn0g16.png", allocator);
     try image.write_BMP("basn0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -935,9 +935,9 @@ test "GRAY 16" {
 
 test "GRAY 8 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn4a08.png", &allocator);
+    try image.load("tests/png/basic/basn4a08.png", allocator);
     try image.write_BMP("basn4a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -947,9 +947,9 @@ test "GRAY 8 ALPHA" {
 
 test "GRAY 16 ALPHA" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn4a16.png", &allocator);
+    try image.load("tests/png/basic/basn4a16.png", allocator);
     try image.write_BMP("basn4a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -959,9 +959,9 @@ test "GRAY 16 ALPHA" {
 
 test "PALETTE 8 GRAY" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/palette/ps2n2c16.png", &allocator);
+    try image.load("tests/png/palette/ps2n2c16.png", allocator);
     try image.write_BMP("ps2n2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -971,9 +971,9 @@ test "PALETTE 8 GRAY" {
 
 test "BW INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi0g01.png", &allocator);
+    try image.load("tests/png/interlacing/basi0g01.png", allocator);
     try image.write_BMP("basi0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -983,9 +983,9 @@ test "BW INTERLACE" {
 
 test "BW 2 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi0g02.png", &allocator);
+    try image.load("tests/png/interlacing/basi0g02.png", allocator);
     try image.write_BMP("basi0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -995,9 +995,9 @@ test "BW 2 INTERLACE" {
 
 test "BW 4 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi0g04.png", &allocator);
+    try image.load("tests/png/interlacing/basi0g04.png", allocator);
     try image.write_BMP("basi0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -1007,9 +1007,9 @@ test "BW 4 INTERLACE" {
 
 test "BW 8 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi0g08.png", &allocator);
+    try image.load("tests/png/interlacing/basi0g08.png", allocator);
     try image.write_BMP("basi0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -1019,9 +1019,9 @@ test "BW 8 INTERLACE" {
 
 test "BW 16 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi0g16.png", &allocator);
+    try image.load("tests/png/interlacing/basi0g16.png", allocator);
     try image.write_BMP("basi0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -1031,9 +1031,9 @@ test "BW 16 INTERLACE" {
 
 test "COLOR 8 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi2c08.png", &allocator);
+    try image.load("tests/png/interlacing/basi2c08.png", allocator);
     try image.write_BMP("basi2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -1043,9 +1043,9 @@ test "COLOR 8 INTERLACE" {
 
 test "COLOR 16 INTERLACE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/interlacing/basi2c16.png", &allocator);
+    try image.load("tests/png/interlacing/basi2c16.png", allocator);
     try image.write_BMP("basi2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {

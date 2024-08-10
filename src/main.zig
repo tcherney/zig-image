@@ -24,9 +24,9 @@ pub fn sample_pixel(im: anytype, i: usize, j: usize, num_samples: u32) Error!f32
     return sample;
 }
 
-pub fn img2ascii(comptime T: type, im: *image.Image(T), ascii_height: u32, file_name: []const u8, alloc: *std.mem.Allocator) ![]u8 {
+pub fn img2ascii(comptime T: type, im: *image.Image(T), ascii_height: u32, file_name: []const u8, allocator: std.mem.Allocator) ![]u8 {
     if (T == image.JPEGImage or T == image.PNGImage or T == image.BMPImage) {
-        try im.load(file_name, alloc);
+        try im.load(file_name, allocator);
     } else {
         return Error.INVALID_ARG;
     }
@@ -41,7 +41,7 @@ pub fn img2ascii(comptime T: type, im: *image.Image(T), ascii_height: u32, file_
     }
     std.debug.print("sample rate {d}\n", .{sample});
     const SCALE = 1.0 / @as(f32, @floatFromInt(sample));
-    var ascii_pixels: []u8 = try alloc.alloc(u8, im.height + @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(im.width)) * @as(f32, @floatFromInt(im.height)) * SCALE))));
+    var ascii_pixels: []u8 = try allocator.alloc(u8, im.height + @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(im.width)) * @as(f32, @floatFromInt(im.height)) * SCALE))));
     for (ascii_pixels) |*pix| {
         pix.* = ' ';
     }
@@ -69,7 +69,7 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     const argsv = try std.process.argsAlloc(allocator);
     var ascii_image: []u8 = undefined;
     var ascii_height: u32 = 100;
@@ -86,13 +86,13 @@ pub fn main() !void {
                 const extension = argsv[1][argsv[1].len - 3 ..];
                 if (std.mem.eql(u8, extension, "jpg")) {
                     var im = image.Image(image.JPEGImage){};
-                    ascii_image = try img2ascii(image.JPEGImage, &im, ascii_height, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.JPEGImage, &im, ascii_height, argsv[1], allocator);
                 } else if (std.mem.eql(u8, extension, "bmp")) {
                     var im = image.Image(image.BMPImage){};
-                    ascii_image = try img2ascii(image.BMPImage, &im, ascii_height, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.BMPImage, &im, ascii_height, argsv[1], allocator);
                 } else if (std.mem.eql(u8, extension, "png")) {
                     var im = image.Image(image.PNGImage){};
-                    ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, argsv[1], &allocator);
+                    ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, argsv[1], allocator);
                 } else {
                     try stdout.print("Image must be .jpg/.png/.bmp\n", .{});
                     try bw.flush();
@@ -105,7 +105,7 @@ pub fn main() !void {
     } else {
         var im = image.Image(image.PNGImage){};
         const file_name: []const u8 = "tests/png/shield.png";
-        ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, file_name, &allocator);
+        ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, file_name, allocator);
     }
     try stdout.print("{s}\n", .{ascii_image});
     try bw.flush(); // don't forget to flush!

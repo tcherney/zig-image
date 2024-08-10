@@ -15,9 +15,9 @@ pub const Error = jpeg_image.Error || png_image.Error || bmp_image.Error;
 
 test "JPEG" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = Image(JPEGImage){};
-    try image.load("tests/jpeg/cat.jpg", &allocator);
+    try image.load("tests/jpeg/cat.jpg", allocator);
     try image.convert_grayscale();
     image.get(5, 5).r = 255;
     try image.write_BMP("cat.bmp");
@@ -29,9 +29,9 @@ test "JPEG" {
 
 test "PNG" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = Image(PNGImage){};
-    try image.load("tests/png/shield.png", &allocator);
+    try image.load("tests/png/shield.png", allocator);
     try image.convert_grayscale();
     image.get(5, 5).r = 255;
     try image.write_BMP("shield.bmp");
@@ -43,9 +43,9 @@ test "PNG" {
 
 test "BMP" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     var image = Image(BMPImage){};
-    try image.load("tests/bmp/parrot.bmp", &allocator);
+    try image.load("tests/bmp/parrot.bmp", allocator);
     try image.convert_grayscale();
     image.get(5, 5).r = 255;
     try image.write_BMP("parrot2.bmp");
