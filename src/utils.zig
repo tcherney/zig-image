@@ -15,6 +15,7 @@ pub fn Pixel(comptime T: type) type {
         r: T,
         g: T,
         b: T,
+        a: ?T = null,
     };
 }
 

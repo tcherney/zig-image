@@ -554,29 +554,31 @@ pub const PNGImage = struct {
             4 => {
                 switch (self.bit_depth) {
                     8 => {
-                        const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]));
-                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        const bkgd = max_pixel;
-                        var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
-                        rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]));
+                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        // const bkgd = max_pixel;
+                        // var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
+                        // rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         self.data.items[data_index] = utils.Pixel(u8){
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
+                            .r = ret.items[buffer_index.*],
+                            .g = ret.items[buffer_index.*],
+                            .b = ret.items[buffer_index.*],
+                            .a = ret.items[buffer_index.* + 1],
                         };
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
-                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        const bkgd = max_pixel;
-                        var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
-                        rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        // const bkgd = max_pixel;
+                        // var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
+                        // rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         self.data.items[data_index] = utils.Pixel(u8){
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            .a = @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         };
                         buffer_index.* += num_bytes_per_pixel;
                     },
@@ -587,21 +589,22 @@ pub const PNGImage = struct {
                 switch (self.bit_depth) {
                     8 => {
                         // next 3 bytes are rgb followed by alpha
-                        const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 3]));
-                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        const bkgd = max_pixel;
-                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
-                        var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
-                        var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]))));
-                        var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 2]))));
-                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
-                        r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        //const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 3]));
+                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        // const bkgd = max_pixel;
+                        // //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        // var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
+                        // var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]))));
+                        // var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 2]))));
+                        // //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        // r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         self.data.items[data_index] = utils.Pixel(u8){
-                            .r = r,
-                            .g = g,
-                            .b = b,
+                            .r = ret.items[buffer_index.*],
+                            .g = ret.items[buffer_index.* + 1],
+                            .b = ret.items[buffer_index.* + 2],
+                            .a = ret.items[buffer_index.* + 3],
                         };
                         buffer_index.* += num_bytes_per_pixel;
                     },
@@ -609,20 +612,21 @@ pub const PNGImage = struct {
                         //TODO figure out scuffed corner in 16 bit alpha images
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
-                        const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        const bkgd = max_pixel;
-                        //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
-                        var r: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
-                        var g: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]))));
-                        var b: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5]))));
-                        //std.debug.print("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
-                        r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
+                        // const bkgd = max_pixel;
+                        // //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        // var r: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
+                        // var g: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]))));
+                        // var b: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5]))));
+                        // //std.debug.print("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        // r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
+                        // b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         self.data.items[data_index] = utils.Pixel(u8){
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(r)) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(g)) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(b)) * (255.0 / 65535.0))),
+                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
+                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
+                            .a = @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         };
                         buffer_index.* += num_bytes_per_pixel;
                     },
@@ -748,12 +752,29 @@ pub const PNGImage = struct {
         while (i >= 0) {
             while (j < self.width) {
                 const pixel: *utils.Pixel(u8) = &self.data.items[i * self.width + j];
-                buffer_pos[0] = pixel.b;
+                var r: u8 = pixel.r;
+                var g: u8 = pixel.g;
+                var b: u8 = pixel.b;
+                if (pixel.a) |alpha| {
+                    const max_pixel = 255.0;
+                    const bkgd = 255.0;
+                    var rf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.r));
+                    var gf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.g));
+                    var bf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.b));
+                    rf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
+                    gf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
+                    bf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
+                    r = @as(u8, @intFromFloat(rf));
+                    g = @as(u8, @intFromFloat(gf));
+                    b = @as(u8, @intFromFloat(bf));
+                }
+                buffer_pos[0] = b;
                 buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.g;
+                buffer_pos[0] = g;
                 buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.r;
+                buffer_pos[0] = r;
                 buffer_pos.ptr += 1;
+
                 j += 1;
             }
             for (0..padding_size) |_| {
