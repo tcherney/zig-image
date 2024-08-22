@@ -114,7 +114,7 @@ pub const PNGImage = struct {
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
     chunks: std.ArrayList(Chunk) = undefined,
-    data: std.ArrayList(utils.Pixel(u8)) = undefined,
+    data: std.ArrayList(utils.Pixel) = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
     bit_depth: u8 = undefined,
@@ -458,7 +458,7 @@ pub const PNGImage = struct {
                 switch (self.bit_depth) {
                     1 => {
                         const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
@@ -473,7 +473,7 @@ pub const PNGImage = struct {
                     2 => {
                         const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 3.0)));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
@@ -488,7 +488,7 @@ pub const PNGImage = struct {
                     4 => {
                         const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 15.0)));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
@@ -502,7 +502,7 @@ pub const PNGImage = struct {
                     },
                     8 => {
                         const rgb: u8 = ret.items[buffer_index.*];
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = rgb,
                             .g = rgb,
                             .b = rgb,
@@ -511,7 +511,7 @@ pub const PNGImage = struct {
                     },
                     16 => {
                         const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
                             .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
                             .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
@@ -524,7 +524,7 @@ pub const PNGImage = struct {
             2 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = ret.items[buffer_index.*],
                             .g = ret.items[buffer_index.* + 1],
                             .b = ret.items[buffer_index.* + 2],
@@ -532,7 +532,7 @@ pub const PNGImage = struct {
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
                             .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
@@ -559,7 +559,7 @@ pub const PNGImage = struct {
                         // const bkgd = max_pixel;
                         // var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
                         // rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = ret.items[buffer_index.*],
                             .g = ret.items[buffer_index.*],
                             .b = ret.items[buffer_index.*],
@@ -574,7 +574,7 @@ pub const PNGImage = struct {
                         // const bkgd = max_pixel;
                         // var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
                         // rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
@@ -600,7 +600,7 @@ pub const PNGImage = struct {
                         // r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = ret.items[buffer_index.*],
                             .g = ret.items[buffer_index.* + 1],
                             .b = ret.items[buffer_index.* + 2],
@@ -622,7 +622,7 @@ pub const PNGImage = struct {
                         // r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel(u8){
+                        self.data.items[data_index] = utils.Pixel{
                             .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
                             .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
@@ -637,7 +637,7 @@ pub const PNGImage = struct {
         }
     }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || Error)!void {
-        self.data = try std.ArrayList(utils.Pixel(u8)).initCapacity(self.allocator, self.height * self.width);
+        self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         var buffer_index: usize = 0;
         var previous_index: usize = 0;
@@ -696,11 +696,13 @@ pub const PNGImage = struct {
     }
     pub fn convert_grayscale(self: *PNGImage) !void {
         if (self.loaded) {
+            const data_copy = try self.image_core().grayscale();
+            defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].b)) * 0.1140));
-                self.data.items[i].r = gray;
-                self.data.items[i].g = gray;
-                self.data.items[i].b = gray;
+                self.data.items[i].r = data_copy[i].r;
+                self.data.items[i].g = data_copy[i].g;
+                self.data.items[i].b = data_copy[i].b;
+                self.data.items[i].a = data_copy[i].a;
             }
         } else {
             return Error.NOT_LOADED;
@@ -721,7 +723,7 @@ pub const PNGImage = struct {
         self.loaded = true;
     }
 
-    pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel {
         return &self.data.items[y * self.width + x];
     }
 
@@ -743,7 +745,7 @@ pub const PNGImage = struct {
         }
         std.ArrayList(Chunk).deinit(self.chunks);
         self.allocator.free(self.idat_data);
-        std.ArrayList(utils.Pixel(u8)).deinit(self.data);
+        std.ArrayList(utils.Pixel).deinit(self.data);
     }
 };
 

@@ -13,7 +13,7 @@ pub const BMPImage = struct {
     file_data: utils.BitReader = undefined,
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
-    data: std.ArrayList(utils.Pixel(u8)) = undefined,
+    data: std.ArrayList(utils.Pixel) = undefined,
     bmp_file_header: BMPFileHeader = undefined,
     dib_file_header: BMPDIBHeader = undefined,
     width: u32 = undefined,
@@ -83,11 +83,13 @@ pub const BMPImage = struct {
 
     pub fn convert_grayscale(self: *BMPImage) !void {
         if (self.loaded) {
+            const data_copy = try self.image_core().grayscale();
+            defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].b)) * 0.1140));
-                self.data.items[i].r = gray;
-                self.data.items[i].g = gray;
-                self.data.items[i].b = gray;
+                self.data.items[i].r = data_copy[i].r;
+                self.data.items[i].g = data_copy[i].g;
+                self.data.items[i].b = data_copy[i].b;
+                self.data.items[i].a = data_copy[i].a;
             }
         } else {
             return Error.NOT_LOADED;
@@ -99,13 +101,13 @@ pub const BMPImage = struct {
         std.debug.print("reading bmp\n", .{});
         try self.read_BMP_header();
         try self.read_DIB_header();
-        self.data = try std.ArrayList(utils.Pixel(u8)).initCapacity(self.allocator, self.height * self.width);
+        self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         try self.read_color_data();
         self.loaded = true;
     }
 
-    pub fn get(self: *const BMPImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *const BMPImage, x: usize, y: usize) *utils.Pixel {
         return &self.data.items[y * self.width + x];
     }
 
@@ -118,7 +120,7 @@ pub const BMPImage = struct {
                 switch (self.dib_file_header.compression_method) {
                     .BI_RGB => {
                         if (self.dib_file_header.bpp == 24) {
-                            self.data.items[i * self.width + j] = utils.Pixel(u8){
+                            self.data.items[i * self.width + j] = utils.Pixel{
                                 .b = try self.file_data.read_byte(),
                                 .g = try self.file_data.read_byte(),
                                 .r = try self.file_data.read_byte(),
@@ -127,14 +129,14 @@ pub const BMPImage = struct {
                     },
                     .BI_BITFIELDS => {
                         if (self.dib_file_header.bpp == 24) {
-                            self.data.items[i * self.width + j] = utils.Pixel(u8){
+                            self.data.items[i * self.width + j] = utils.Pixel{
                                 .b = try self.file_data.read_byte(),
                                 .g = try self.file_data.read_byte(),
                                 .r = try self.file_data.read_byte(),
                             };
                             _ = try self.file_data.read_byte();
                         } else if (self.dib_file_header.bpp == 32) {
-                            self.data.items[i * self.width + j] = utils.Pixel(u8){
+                            self.data.items[i * self.width + j] = utils.Pixel{
                                 .b = try self.file_data.read_byte(),
                                 .g = try self.file_data.read_byte(),
                                 .r = try self.file_data.read_byte(),
@@ -284,7 +286,7 @@ pub const BMPImage = struct {
 
     pub fn deinit(self: *BMPImage) void {
         self.file_data.deinit();
-        std.ArrayList(utils.Pixel(u8)).deinit(self.data);
+        std.ArrayList(utils.Pixel).deinit(self.data);
     }
 };
 

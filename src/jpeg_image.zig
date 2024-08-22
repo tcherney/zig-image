@@ -208,7 +208,7 @@ fn thread_compute(self: *JPEGImage, start: usize, block_height: u32) !void {
 }
 //TODO refactor naming style and pointer/optional types for data/allocator
 pub const JPEGImage = struct {
-    data: std.ArrayList(utils.Pixel(u8)) = undefined,
+    data: std.ArrayList(utils.Pixel) = undefined,
     quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
     height: u32 = 0,
     width: u32 = 0,
@@ -593,7 +593,7 @@ pub const JPEGImage = struct {
         try self.read_scans(bit_reader);
     }
     pub fn deinit(self: *JPEGImage) void {
-        std.ArrayList(utils.Pixel(u8)).deinit(self.data);
+        std.ArrayList(utils.Pixel).deinit(self.data);
     }
     pub fn print(self: *JPEGImage) void {
         std.debug.print("Quant Tables:\n", .{});
@@ -1115,7 +1115,7 @@ pub const JPEGImage = struct {
     }
 
     fn gen_rgb_data(self: *JPEGImage) !void {
-        self.data = std.ArrayList(utils.Pixel(u8)).init(self.allocator);
+        self.data = std.ArrayList(utils.Pixel).init(self.allocator);
         defer self.allocator.free(self.blocks);
 
         //std.debug.print("block height {d}\n", .{self._block_height});
@@ -1165,7 +1165,7 @@ pub const JPEGImage = struct {
                 //std.debug.print("writing index {d}\n", .{block_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
                 //std.debug.print("pixel ({d}) ({d}) ({d})\n", .{ blocks[block_index].r[pixel_index], blocks[block_index].g[pixel_index], blocks[block_index].b[pixel_index] });
-                try self.data.append(utils.Pixel(u8){
+                try self.data.append(utils.Pixel{
                     .r = @truncate(@as(u32, @bitCast(self.blocks[block_index].r[pixel_index]))),
                     .g = @truncate(@as(u32, @bitCast(self.blocks[block_index].g[pixel_index]))),
                     .b = @truncate(@as(u32, @bitCast(self.blocks[block_index].b[pixel_index]))),
@@ -1177,11 +1177,13 @@ pub const JPEGImage = struct {
     }
     pub fn convert_grayscale(self: *JPEGImage) !void {
         if (self.loaded) {
+            const data_copy = try self.image_core().grayscale();
+            defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(self.data.items[i].b)) * 0.1140));
-                self.data.items[i].r = gray;
-                self.data.items[i].g = gray;
-                self.data.items[i].b = gray;
+                self.data.items[i].r = data_copy[i].r;
+                self.data.items[i].g = data_copy[i].g;
+                self.data.items[i].b = data_copy[i].b;
+                self.data.items[i].a = data_copy[i].a;
             }
         } else {
             return Error.NOT_LOADED;
@@ -1196,7 +1198,7 @@ pub const JPEGImage = struct {
         }
         try self.image_core().write_BMP(file_name);
     }
-    pub fn get(self: *const JPEGImage, x: usize, y: usize) *utils.Pixel(u8) {
+    pub fn get(self: *const JPEGImage, x: usize, y: usize) *utils.Pixel {
         return &self.data.items[y * self.width + x];
     }
     pub fn load(self: *JPEGImage, file_name: []const u8, allocator: std.mem.Allocator) !void {

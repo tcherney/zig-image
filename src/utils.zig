@@ -8,16 +8,37 @@ pub fn timer_start() !void {
 pub const ImageCore = struct {
     height: u32,
     width: u32,
-    data: []Pixel(u8),
+    data: []Pixel,
     allocator: std.mem.Allocator,
     const Self = @This();
-    pub fn init(allocator: std.mem.Allocator, width: u32, height: u32, data: []Pixel(u8)) ImageCore {
+    pub fn init(allocator: std.mem.Allocator, width: u32, height: u32, data: []Pixel) ImageCore {
         return .{
             .height = height,
             .width = width,
             .data = data,
             .allocator = allocator,
         };
+    }
+    pub fn nearest_neighbor(self: *const Self, width: usize, height: usize) std.mem.Allocator.Error![]Pixel {
+        var new_buffer = try self.allocator.alloc(Pixel, width * height);
+        for (0..height) |y| {
+            for (0..width) |x| {
+                const src_x: usize = @min(self.width - 1, @as(usize, @intFromFloat(@as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(width)) * @as(f32, @floatFromInt(self.width)))));
+                const src_y: usize = @min(self.height - 1, @as(usize, @intFromFloat(@as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(height)) * @as(f32, @floatFromInt(self.height)))));
+                new_buffer[y * width + x] = .{ .r = self.data[src_y * self.width + src_x].r, .g = self.data[src_y * self.width + src_x].g, .b = self.data[src_y * self.width + src_x].b, .a = self.data[src_y * self.width + src_x].a };
+            }
+        }
+        return new_buffer;
+    }
+    pub fn grayscale(self: *const Self) std.mem.Allocator.Error![]Pixel {
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
+        for (0..data_copy.len) |i| {
+            const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].b)) * 0.1140));
+            data_copy[i].r = gray;
+            data_copy[i].g = gray;
+            data_copy[i].b = gray;
+        }
+        return data_copy;
     }
     pub fn write_BMP(self: *const Self, file_name: []const u8) !void {
         const image_file = try std.fs.cwd().createFile(file_name, .{});
@@ -42,7 +63,7 @@ pub const ImageCore = struct {
         var j: usize = 0;
         while (i >= 0) {
             while (j < self.width) {
-                const pixel: *Pixel(u8) = &self.data[i * self.width + j];
+                const pixel: *Pixel = &self.data[i * self.width + j];
                 var r: u8 = pixel.r;
                 var g: u8 = pixel.g;
                 var b: u8 = pixel.b;
@@ -84,14 +105,12 @@ pub fn timer_end() void {
     timer.reset();
 }
 
-pub fn Pixel(comptime T: type) type {
-    return struct {
-        r: T,
-        g: T,
-        b: T,
-        a: ?T = null,
-    };
-}
+pub const Pixel = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: ?u8 = null,
+};
 
 pub const Max_error = error{
     NO_ITEMS,

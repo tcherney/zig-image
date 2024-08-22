@@ -10,7 +10,7 @@ pub fn Image(comptime T: type) type {
 }
 
 pub const ImageCore = utils.ImageCore;
-
+pub const Pixel = utils.Pixel;
 pub const JPEGImage: type = jpeg_image.JPEGImage;
 pub const PNGImage: type = png_image.PNGImage;
 pub const BMPImage: type = bmp_image.BMPImage;
