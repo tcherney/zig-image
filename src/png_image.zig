@@ -725,68 +725,17 @@ pub const PNGImage = struct {
         return &self.data.items[y * self.width + x];
     }
 
+    pub fn image_core(self: *PNGImage) utils.ImageCore {
+        return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
+    }
+
     pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
         if (!self.loaded) {
             return Error.NOT_LOADED;
         }
-        const image_file = try std.fs.cwd().createFile(file_name, .{});
-        defer image_file.close();
-        try image_file.writer().writeByte('B');
-        try image_file.writer().writeByte('M');
-        const padding_size: u32 = self.width % 4;
-        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
-
-        var buffer: []u8 = try self.allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
-        var buffer_pos = buffer[0..buffer.len];
-        defer self.allocator.free(buffer);
-        try utils.write_little_endian(&image_file, 4, size);
-        try utils.write_little_endian(&image_file, 4, 0);
-        try utils.write_little_endian(&image_file, 4, 0x1A);
-        try utils.write_little_endian(&image_file, 4, 12);
-        try utils.write_little_endian(&image_file, 2, self.width);
-        try utils.write_little_endian(&image_file, 2, self.height);
-        try utils.write_little_endian(&image_file, 2, 1);
-        try utils.write_little_endian(&image_file, 2, 24);
-        var i: usize = self.height - 1;
-        var j: usize = 0;
-        while (i >= 0) {
-            while (j < self.width) {
-                const pixel: *utils.Pixel(u8) = &self.data.items[i * self.width + j];
-                var r: u8 = pixel.r;
-                var g: u8 = pixel.g;
-                var b: u8 = pixel.b;
-                if (pixel.a) |alpha| {
-                    const max_pixel = 255.0;
-                    const bkgd = 255.0;
-                    var rf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.r));
-                    var gf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.g));
-                    var bf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.b));
-                    rf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
-                    gf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
-                    bf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
-                    r = @as(u8, @intFromFloat(rf));
-                    g = @as(u8, @intFromFloat(gf));
-                    b = @as(u8, @intFromFloat(bf));
-                }
-                buffer_pos[0] = b;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = g;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = r;
-                buffer_pos.ptr += 1;
-
-                j += 1;
-            }
-            for (0..padding_size) |_| {
-                buffer_pos[0] = 0;
-                buffer_pos.ptr += 1;
-            }
-            j = 0;
-            if (i == 0) break;
-            i -= 1;
-        }
-        try image_file.writeAll(buffer);
+        try self.image_core().write_BMP(file_name);
     }
+
     pub fn deinit(self: *PNGImage) void {
         self.file_data.deinit();
         for (self.chunks.items) |*chunk| {

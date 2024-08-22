@@ -271,51 +271,17 @@ pub const BMPImage = struct {
         std.debug.print("offset {d}\n", .{self.bmp_file_header.offset});
     }
 
+    pub fn image_core(self: *BMPImage) utils.ImageCore {
+        return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
+    }
+
     pub fn write_BMP(self: *BMPImage, file_name: []const u8) !void {
         if (!self.loaded) {
             return Error.NOT_LOADED;
         }
-        const image_file = try std.fs.cwd().createFile(file_name, .{});
-        defer image_file.close();
-        try image_file.writer().writeByte('B');
-        try image_file.writer().writeByte('M');
-        const padding_size: u32 = self.width % 4;
-        const size: u32 = 14 + 12 + self.height * self.width * 3 + padding_size * self.height;
-
-        var buffer: []u8 = try self.allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
-        var buffer_pos = buffer[0..buffer.len];
-        defer self.allocator.free(buffer);
-        try utils.write_little_endian(&image_file, 4, size);
-        try utils.write_little_endian(&image_file, 4, 0);
-        try utils.write_little_endian(&image_file, 4, 0x1A);
-        try utils.write_little_endian(&image_file, 4, 12);
-        try utils.write_little_endian(&image_file, 2, self.width);
-        try utils.write_little_endian(&image_file, 2, self.height);
-        try utils.write_little_endian(&image_file, 2, 1);
-        try utils.write_little_endian(&image_file, 2, 24);
-        var i: usize = self.height - 1;
-        var j: usize = 0;
-        while (i >= 0) {
-            while (j < self.width) {
-                const pixel: *utils.Pixel(u8) = &self.data.items[i * self.width + j];
-                buffer_pos[0] = pixel.b;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.g;
-                buffer_pos.ptr += 1;
-                buffer_pos[0] = pixel.r;
-                buffer_pos.ptr += 1;
-                j += 1;
-            }
-            for (0..padding_size) |_| {
-                buffer_pos[0] = 0;
-                buffer_pos.ptr += 1;
-            }
-            j = 0;
-            if (i == 0) break;
-            i -= 1;
-        }
-        try image_file.writeAll(buffer);
+        try self.image_core().write_BMP(file_name);
     }
+
     pub fn deinit(self: *BMPImage) void {
         self.file_data.deinit();
         std.ArrayList(utils.Pixel(u8)).deinit(self.data);
