@@ -1,12 +1,4 @@
-# img2ascii
-- Printing an image in ascii to the terminal with zig.
-- Using own implementation of image decoding
-- Usage: img2ascii image_file(png/jpg/bmp)
-
-## TODO 
-- [x] Handle JPEG images
-- [x] Handle PNG images
-- [x] Handle BMP images
-- [x] Convert image to ascii to display on terminal
-
-![img2ascii](/img2ascii.png)
+# image
+- General image struct that has jpeg/png/bmp decoding implemented at varying levels and a handful of image manipulation functions.
+- Made to be a lib used in my other projects.
+- Usage: image image_file(png/jpg/bmp)

@@ -65,10 +65,16 @@ pub const BMPImage = struct {
         profile_size: u32 = undefined,
         reserved: u32 = undefined,
 
+        const Pixel32 = struct {
+            r: u32,
+            g: u32,
+            b: u32,
+        };
+
         const CIEXYZ = struct {
-            ciexyz_x: utils.Pixel(u32) = undefined,
-            ciexyz_y: utils.Pixel(u32) = undefined,
-            ciexyz_z: utils.Pixel(u32) = undefined,
+            ciexyz_x: Pixel32 = undefined,
+            ciexyz_y: Pixel32 = undefined,
+            ciexyz_z: Pixel32 = undefined,
         };
     };
 
@@ -174,17 +180,17 @@ pub const BMPImage = struct {
         try self.read_DIB_V3_header();
         self.dib_file_header.color_space_type = try self.file_data.read_int();
         self.dib_file_header.ciexyz = BMPDIBHeader.CIEXYZ{};
-        self.dib_file_header.ciexyz.ciexyz_x = utils.Pixel(u32){
+        self.dib_file_header.ciexyz.ciexyz_x = BMPDIBHeader.Pixel32{
             .r = try self.file_data.read_int(),
             .g = try self.file_data.read_int(),
             .b = try self.file_data.read_int(),
         };
-        self.dib_file_header.ciexyz.ciexyz_y = utils.Pixel(u32){
+        self.dib_file_header.ciexyz.ciexyz_y = BMPDIBHeader.Pixel32{
             .r = try self.file_data.read_int(),
             .g = try self.file_data.read_int(),
             .b = try self.file_data.read_int(),
         };
-        self.dib_file_header.ciexyz.ciexyz_z = utils.Pixel(u32){
+        self.dib_file_header.ciexyz.ciexyz_z = BMPDIBHeader.Pixel32{
             .r = try self.file_data.read_int(),
             .g = try self.file_data.read_int(),
             .b = try self.file_data.read_int(),

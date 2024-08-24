@@ -71,12 +71,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     const argsv = try std.process.argsAlloc(allocator);
-    var ascii_image: []u8 = undefined;
-    var ascii_height: u32 = 100;
     if (argsv.len > 1) {
-        if (argsv.len == 3) {
-            ascii_height = try std.fmt.parseInt(u32, argsv[2], 10);
-        }
         if (argsv.len >= 2) {
             if (argsv[1].len < 3) {
                 try stdout.print("Image must be .jpg/.png/.bmp\n", .{});
@@ -86,42 +81,38 @@ pub fn main() !void {
                 const extension = argsv[1][argsv[1].len - 3 ..];
                 if (std.mem.eql(u8, extension, "jpg")) {
                     var im = image.Image(image.JPEGImage){};
-                    ascii_image = try img2ascii(image.JPEGImage, &im, ascii_height, argsv[1], allocator);
+                    defer im.deinit();
+                    const output_name = try std.fmt.allocPrint(allocator, "{s}.bmp", .{argsv[1][0 .. argsv[1].len - 4]});
+                    defer allocator.free(output_name);
+                    try im.load(argsv[1], allocator);
+                    try im.write_BMP(output_name);
                 } else if (std.mem.eql(u8, extension, "bmp")) {
                     var im = image.Image(image.BMPImage){};
-                    ascii_image = try img2ascii(image.BMPImage, &im, ascii_height, argsv[1], allocator);
+                    defer im.deinit();
+                    const output_name = try std.fmt.allocPrint(allocator, "{s}.bmp", .{argsv[1][0 .. argsv[1].len - 4]});
+                    defer allocator.free(output_name);
+                    try im.load(argsv[1], allocator);
+                    try im.write_BMP(output_name);
                 } else if (std.mem.eql(u8, extension, "png")) {
                     var im = image.Image(image.PNGImage){};
-                    ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, argsv[1], allocator);
+                    defer im.deinit();
+                    const output_name = try std.fmt.allocPrint(allocator, "{s}.bmp", .{argsv[1][0 .. argsv[1].len - 4]});
+                    defer allocator.free(output_name);
+                    try im.load(argsv[1], allocator);
+                    try im.write_BMP(output_name);
                 } else {
                     try stdout.print("Image must be .jpg/.png/.bmp\n", .{});
                     try bw.flush();
                 }
             }
         } else {
-            try stdout.print("Usage: {s} image_file ascii_height\n", .{argsv[0]});
+            try stdout.print("Usage: {s} image_file\n", .{argsv[0]});
             try bw.flush();
         }
     } else {
-        var im = image.Image(image.PNGImage){};
-        const file_name: []const u8 = "tests/png/shield.png";
-        ascii_image = try img2ascii(image.PNGImage, &im, ascii_height, file_name, allocator);
+        try stdout.print("Usage: {s} image_file\n", .{argsv[0]});
+        try bw.flush();
     }
-    try stdout.print("{s}\n", .{ascii_image});
-    try bw.flush(); // don't forget to flush!
-    var ascii_file: std.fs.File = undefined;
-    if (argsv.len > 1) {
-        var output_string = std.ArrayList(u8).init(allocator);
-        try output_string.writer().print("{s}txt", .{argsv[1][0 .. argsv[1].len - 3]});
-        ascii_file = try std.fs.cwd().createFile(output_string.items, .{});
-        std.ArrayList(u8).deinit(output_string);
-    } else {
-        ascii_file = try std.fs.cwd().createFile("shield.txt", .{});
-    }
-
-    try ascii_file.writeAll(ascii_image);
-    ascii_file.close();
-    allocator.free(ascii_image);
 
     std.process.argsFree(allocator, argsv);
 

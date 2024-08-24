@@ -15,48 +15,6 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const bmp_lib = b.addStaticLibrary(.{
-        .name = "bmp_image",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/bmp_image.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(bmp_lib);
-
-    const png_lib = b.addStaticLibrary(.{
-        .name = "png_image",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/png_image.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(png_lib);
-
-    const jpeg_lib = b.addStaticLibrary(.{
-        .name = "jpeg_image",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/jpeg_image.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(jpeg_lib);
-
     const image_lib = b.addStaticLibrary(.{
         .name = "image",
         // In this case the main source file is merely a path, however, in more
@@ -72,7 +30,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(image_lib);
 
     const exe = b.addExecutable(.{
-        .name = "img2ascii",
+        .name = "image",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
