@@ -9,6 +9,8 @@ pub fn Image(comptime T: type) type {
     return T;
 }
 
+pub const ByteStream = utils.ByteStream;
+pub const BitReader = utils.BitReader;
 pub const ImageCore = utils.ImageCore;
 pub const Pixel = utils.Pixel;
 pub const JPEGImage: type = jpeg_image.JPEGImage;
