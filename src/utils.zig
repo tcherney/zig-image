@@ -476,6 +476,9 @@ pub const ByteStream = struct {
     pub fn getPos(self: *ByteStream) usize {
         return self.index;
     }
+    pub fn setPos(self: *ByteStream, index: usize) void {
+        self.index = index;
+    }
     pub fn getEndPos(self: *ByteStream) usize {
         return self.buffer.len - 1;
     }
@@ -527,6 +530,9 @@ pub const BitReader = struct {
     }
     pub fn deinit(self: *Self) void {
         self.byte_stream.deinit();
+    }
+    pub fn setPos(self: *Self, index: usize) void {
+        self.byte_stream.setPos(index);
     }
     pub fn has_bits(self: *Self) bool {
         return if (self.byte_stream.getPos() != self.byte_stream.getEndPos()) true else false;
