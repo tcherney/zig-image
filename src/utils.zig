@@ -534,6 +534,9 @@ pub const BitReader = struct {
     pub fn setPos(self: *Self, index: usize) void {
         self.byte_stream.setPos(index);
     }
+    pub fn getPos(self: *Self) usize {
+        return self.byte_stream.getPos();
+    }
     pub fn has_bits(self: *Self) bool {
         return if (self.byte_stream.getPos() != self.byte_stream.getEndPos()) true else false;
     }
