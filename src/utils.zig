@@ -332,6 +332,9 @@ pub const Pixel = struct {
     g: u8 = 0,
     b: u8 = 0,
     a: ?u8 = null,
+    pub fn eql(self: *Pixel, other: Pixel) bool {
+        return self.r == other.r and self.g == other.g and self.b == other.b;
+    }
 };
 
 pub const Max_error = error{
