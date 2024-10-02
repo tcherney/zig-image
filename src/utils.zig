@@ -216,7 +216,6 @@ pub const ImageCore = struct {
                 } else if (new_pixel.a != null and new_pixel.a.? < 0) {
                     new_pixel.a = 0;
                 }
-                std.debug.print("{any}\n", .{new_pixel.r});
                 data_copy[y * width + x].r = @as(u8, @intFromFloat(new_pixel.r));
                 data_copy[y * width + x].g = @as(u8, @intFromFloat(new_pixel.g));
                 data_copy[y * width + x].b = @as(u8, @intFromFloat(new_pixel.b));
