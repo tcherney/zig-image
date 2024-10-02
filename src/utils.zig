@@ -196,7 +196,27 @@ pub const ImageCore = struct {
                 const a2 = d0.scale(1.0 / 2.0).add(d2.scale(1.0 / 2.0));
                 const a3 = d0.scale(-1.0 / 6.0).sub(d2.scale(1.0 / 2.0).add(d3.scale(1.0 / 6.0)));
                 new_pixel = a0.add(a1.scale(dy)).add(a2.scale(dy * dy)).add(a3.scale(dy * dy * dy));
-
+                if (new_pixel.r > 255) {
+                    new_pixel.r = 255;
+                } else if (new_pixel.r < 0) {
+                    new_pixel.r = 0;
+                }
+                if (new_pixel.g > 255) {
+                    new_pixel.g = 255;
+                } else if (new_pixel.g < 0) {
+                    new_pixel.g = 0;
+                }
+                if (new_pixel.b > 255) {
+                    new_pixel.b = 255;
+                } else if (new_pixel.b < 0) {
+                    new_pixel.b = 0;
+                }
+                if (new_pixel.a != null and new_pixel.a.? > 255) {
+                    new_pixel.a = 255;
+                } else if (new_pixel.a != null and new_pixel.a.? < 0) {
+                    new_pixel.a = 0;
+                }
+                std.debug.print("{any}\n", .{new_pixel.r});
                 data_copy[y * width + x].r = @as(u8, @intFromFloat(new_pixel.r));
                 data_copy[y * width + x].g = @as(u8, @intFromFloat(new_pixel.g));
                 data_copy[y * width + x].b = @as(u8, @intFromFloat(new_pixel.b));
