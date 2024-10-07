@@ -311,7 +311,7 @@ pub const ImageCore = struct {
                 var b: u8 = pixel.b;
                 if (pixel.a) |alpha| {
                     const max_pixel = 255.0;
-                    const bkgd = 255.0;
+                    const bkgd = 0;
                     var rf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.r));
                     var gf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.g));
                     var bf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.b));
