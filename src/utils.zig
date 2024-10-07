@@ -1,7 +1,7 @@
 // Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 var timer: std.time.Timer = undefined;
-pub fn timer_start() !void {
+pub fn timer_start() std.time.Timer.Error!void {
     timer = try std.time.Timer.start();
 }
 
@@ -42,6 +42,7 @@ pub const ImageCore = struct {
     data: []Pixel,
     allocator: std.mem.Allocator,
     const Self = @This();
+    pub const Error = error{} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError;
     const BicubicPixel = struct {
         r: f32 = 0,
         g: f32 = 0,
@@ -80,7 +81,7 @@ pub const ImageCore = struct {
             .allocator = allocator,
         };
     }
-    pub fn bilinear(self: *const Self, width: u32, height: u32) std.mem.Allocator.Error![]Pixel {
+    pub fn bilinear(self: *const Self, width: u32, height: u32) Error![]Pixel {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
         const width_scale: f32 = @as(f32, @floatFromInt(self.width)) / @as(f32, @floatFromInt(width));
         const height_scale: f32 = @as(f32, @floatFromInt(self.height)) / @as(f32, @floatFromInt(height));
@@ -159,7 +160,7 @@ pub const ImageCore = struct {
             return BicubicPixel{};
         }
     }
-    pub fn bicubic(self: *const Self, width: u32, height: u32) std.mem.Allocator.Error![]Pixel {
+    pub fn bicubic(self: *const Self, width: u32, height: u32) Error![]Pixel {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
         const width_scale: f32 = @as(f32, @floatFromInt(self.width)) / @as(f32, @floatFromInt(width));
         const height_scale: f32 = @as(f32, @floatFromInt(self.height)) / @as(f32, @floatFromInt(height));
@@ -225,7 +226,7 @@ pub const ImageCore = struct {
 
         return data_copy;
     }
-    pub fn gaussian_blur(self: *const Self, sigma: f32) std.mem.Allocator.Error![]Pixel {
+    pub fn gaussian_blur(self: *const Self, sigma: f32) Error![]Pixel {
         const kernel_2d = try gaussian_kernel_2d(self.allocator, sigma);
         defer self.allocator.free(kernel_2d);
         var kernel_size: u32 = @as(u32, @intFromFloat(@ceil(2 * sigma + 1)));
@@ -260,7 +261,7 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn nearest_neighbor(self: *const Self, width: usize, height: usize) std.mem.Allocator.Error![]Pixel {
+    pub fn nearest_neighbor(self: *const Self, width: usize, height: usize) Error![]Pixel {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
         for (0..height) |y| {
             for (0..width) |x| {
@@ -271,7 +272,7 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn grayscale(self: *const Self) std.mem.Allocator.Error![]Pixel {
+    pub fn grayscale(self: *const Self) Error![]Pixel {
         var data_copy = try self.allocator.dupe(Pixel, self.data);
         for (0..data_copy.len) |i| {
             const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].r)) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].g)) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].b)) * 0.1140));
@@ -281,7 +282,7 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn write_BMP(self: *const Self, file_name: []const u8) !void {
+    pub fn write_BMP(self: *const Self, file_name: []const u8) Error!void {
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
         try image_file.writer().writeByte('B');
@@ -356,15 +357,11 @@ pub const Pixel = struct {
     }
 };
 
-pub const Max_error = error{
-    NO_ITEMS,
-};
-
-pub fn max_array(comptime T: type, arr: []T) Max_error!T {
+pub fn max_array(comptime T: type, arr: []T) T {
     if (arr.len == 1) {
         return arr[0];
     } else if (arr.len == 0) {
-        return Max_error.NO_ITEMS;
+        unreachable;
     }
     var max_t: T = arr[0];
     for (1..arr.len) |i| {
@@ -375,7 +372,7 @@ pub fn max_array(comptime T: type, arr: []T) Max_error!T {
     return max_t;
 }
 
-pub fn write_little_endian(file: *const std.fs.File, num_bytes: comptime_int, i: u32) !void {
+pub fn write_little_endian(file: *const std.fs.File, num_bytes: comptime_int, i: u32) std.fs.File.Writer.Error!void {
     switch (num_bytes) {
         2 => {
             try file.writer().writeInt(u16, @as(u16, @intCast(i)), std.builtin.Endian.little);
@@ -392,6 +389,7 @@ pub fn HuffmanTree(comptime T: type) type {
         root: Node,
         allocator: std.mem.Allocator,
         const Self = @This();
+        pub const Error = error{} || std.mem.Allocator.Error;
         pub const Node = struct {
             symbol: T,
             left: ?*Node,
@@ -404,7 +402,7 @@ pub fn HuffmanTree(comptime T: type) type {
                 };
             }
         };
-        pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!HuffmanTree(T) {
+        pub fn init(allocator: std.mem.Allocator) Error!HuffmanTree(T) {
             return .{
                 .root = Node.init(),
                 .allocator = allocator,
@@ -421,7 +419,7 @@ pub fn HuffmanTree(comptime T: type) type {
             self.deinit_node(self.root.left);
             self.deinit_node(self.root.right);
         }
-        pub fn insert(self: *Self, codeword: T, n: T, symbol: T) std.mem.Allocator.Error!void {
+        pub fn insert(self: *Self, codeword: T, n: T, symbol: T) Error!void {
             //std.debug.print("inserting {b} with length {d} and symbol {d}\n", .{ codeword, n, symbol });
             var node: *Node = &self.root;
             var i = n - 1;
@@ -459,15 +457,12 @@ pub const ByteStream = struct {
     buffer: []u8 = undefined,
     allocator: std.mem.Allocator = undefined,
     own_data: bool = false,
-    pub const Error = error{
-        OUT_OF_BOUNDS,
-        INVALID_ARGS,
-    };
-    pub fn init(options: anytype) !ByteStream {
+    pub const Error = error{ OutOfBounds, InvalidArgs, FileTooBig } || std.fs.File.OpenError || std.mem.Allocator.Error || std.fs.File.Reader.Error;
+    pub fn init(options: anytype) Error!ByteStream {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
-            return Error.INVALID_ARGS;
+            return Error.InvalidArgs;
         }
         var buffer: []u8 = undefined;
         var allocator: std.mem.Allocator = undefined;
@@ -482,7 +477,7 @@ pub const ByteStream = struct {
             const size_limit = std.math.maxInt(u32);
             buffer = try file.readToEndAlloc(allocator, size_limit);
         } else {
-            return Error.INVALID_ARGS;
+            return Error.InvalidArgs;
         }
         return ByteStream{
             .buffer = buffer,
@@ -506,13 +501,13 @@ pub const ByteStream = struct {
     }
     pub fn peek(self: *ByteStream) Error!u8 {
         if (self.index > self.buffer.len - 1) {
-            return Error.OUT_OF_BOUNDS;
+            return Error.OutOfBounds;
         }
         return self.buffer[self.index];
     }
     pub fn readByte(self: *ByteStream) Error!u8 {
         if (self.index > self.buffer.len - 1) {
-            return Error.OUT_OF_BOUNDS;
+            return Error.OutOfBounds;
         }
         self.index += 1;
         return self.buffer[self.index - 1];
@@ -528,11 +523,11 @@ pub const BitReader = struct {
     reverse_bit_order: bool = false,
     const Self = @This();
     pub const Error = error{
-        INVALID_READ,
-        INVALID_ARGS,
-    };
+        InvalidRead,
+        InvalidArgs,
+    } || ByteStream.Error;
 
-    pub fn init(options: anytype) !BitReader {
+    pub fn init(options: anytype) Error!BitReader {
         var bit_reader: BitReader = BitReader{};
         bit_reader.byte_stream = try ByteStream.init(options);
         try bit_reader.set_options(options);
@@ -543,7 +538,7 @@ pub const BitReader = struct {
         const ArgsType = @TypeOf(options);
         const args_type_info = @typeInfo(ArgsType);
         if (args_type_info != .Struct) {
-            return Error.INVALID_ARGS;
+            return Error.InvalidArgs;
         }
 
         self.little_endian = if (@hasField(ArgsType, "little_endian")) @field(options, "little_endian") else false;
@@ -562,43 +557,169 @@ pub const BitReader = struct {
     pub fn has_bits(self: *Self) bool {
         return if (self.byte_stream.getPos() != self.byte_stream.getEndPos()) true else false;
     }
-    pub fn read_byte(self: *Self) ByteStream.Error!u8 {
-        self.next_bit = 0;
-        return try self.byte_stream.readByte();
-    }
-    pub fn read_word(self: *Self) (Error || ByteStream.Error)!u16 {
-        self.next_bit = 0;
-        var ret_word: u16 = @as(u16, try self.byte_stream.readByte());
-        if (self.little_endian) {
-            ret_word |= @as(u16, @intCast(try self.byte_stream.readByte())) << 8;
-        } else {
-            ret_word <<= 8;
-            ret_word += try self.byte_stream.readByte();
-        }
 
-        return ret_word;
-    }
-    pub fn read_int(self: *Self) (Error || ByteStream.Error)!u32 {
+    pub fn read(self: *Self, comptime T: type) Error!T {
         self.next_bit = 0;
-        var ret_int: u32 = @as(u32, try self.byte_stream.readByte());
-        if (self.little_endian) {
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte())) << 24;
-        } else {
-            ret_int <<= 24;
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
-            ret_int |= @as(u32, @intCast(try self.byte_stream.readByte()));
+        var ret: T = undefined;
+        switch (T) {
+            u8 => {
+                ret = try self.byte_stream.readByte();
+            },
+            i8 => {
+                ret = @as(i8, @bitCast(try self.byte_stream.readByte()));
+            },
+            u16 => {
+                ret = @as(u16, @intCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    ret |= @as(u16, @intCast(try self.byte_stream.readByte())) << 8;
+                } else {
+                    ret <<= 8;
+                    ret += try self.byte_stream.readByte();
+                }
+            },
+            i16 => {
+                ret = @as(i16, @bitCast(@as(u16, @intCast(try self.byte_stream.readByte()))));
+                if (self.little_endian) {
+                    ret |= @as(i16, @bitCast(@as(u16, @intCast(try self.byte_stream.readByte())))) << 8;
+                } else {
+                    ret <<= 8;
+                    ret += try self.byte_stream.readByte();
+                }
+            },
+            u32 => {
+                ret = @as(u32, @intCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte())) << 24;
+                } else {
+                    ret <<= 24;
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(u32, @intCast(try self.byte_stream.readByte()));
+                }
+            },
+            i32 => {
+                ret = @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte()))));
+                if (self.little_endian) {
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte())))) << 8;
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte())))) << 16;
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte())))) << 24;
+                } else {
+                    ret <<= 24;
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte())))) << 16;
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte())))) << 8;
+                    ret |= @as(i32, @bitCast(@as(u32, @intCast(try self.byte_stream.readByte()))));
+                }
+            },
+            u64 => {
+                ret = @as(u64, @intCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 24;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 32;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 40;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 48;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 56;
+                } else {
+                    ret <<= 56;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 48;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 40;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 32;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 24;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(u64, @intCast(try self.byte_stream.readByte()));
+                }
+            },
+            usize => {
+                ret = @as(usize, @intCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 24;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 32;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 40;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 48;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 56;
+                } else {
+                    ret <<= 56;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 48;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 40;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 32;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 24;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 16;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte())) << 8;
+                    ret |= @as(usize, @intCast(try self.byte_stream.readByte()));
+                }
+            },
+            i64 => {
+                ret = @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte()))));
+                if (self.little_endian) {
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 8;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 16;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 24;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 32;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 40;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 48;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 56;
+                } else {
+                    ret <<= 56;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 48;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 40;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 32;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 24;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 16;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte())))) << 8;
+                    ret |= @as(i64, @bitCast(@as(u64, @intCast(try self.byte_stream.readByte()))));
+                }
+            },
+            f32 => {
+                var float_imm: u32 = @as(u32, @bitCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte())) << 24;
+                } else {
+                    float_imm <<= 24;
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte())) << 16;
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte())) << 8;
+                    float_imm |= @as(u32, @intCast(try self.byte_stream.readByte()));
+                }
+                ret = @as(f32, @floatFromInt(float_imm));
+            },
+            f64 => {
+                var float_imm: u64 = @as(u64, @bitCast(try self.byte_stream.readByte()));
+                if (self.little_endian) {
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 8;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 16;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 24;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 32;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 40;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 48;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 56;
+                } else {
+                    float_imm <<= 56;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 48;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 40;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 32;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 24;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 16;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte())) << 8;
+                    float_imm |= @as(u64, @intCast(try self.byte_stream.readByte()));
+                }
+                ret = @as(f64, @floatFromInt(float_imm));
+            },
+            else => return Error.InvalidArgs,
         }
-
-        return ret_int;
+        return ret;
     }
-    pub fn read_bit(self: *Self) (Error || ByteStream.Error)!u32 {
+    pub fn read_bit(self: *Self) Error!u32 {
         var bit: u32 = undefined;
         if (self.next_bit == 0) {
             if (!self.has_bits()) {
-                return Error.INVALID_READ;
+                return Error.InvalidRead;
             }
             self.next_byte = try self.byte_stream.readByte();
             if (self.jpeg_filter) {
@@ -615,7 +736,7 @@ pub const BitReader = struct {
                         _ = try self.byte_stream.readByte();
                         self.next_byte = try self.byte_stream.readByte();
                     } else {
-                        return Error.INVALID_READ;
+                        return Error.InvalidRead;
                     }
                 }
             }
@@ -629,7 +750,7 @@ pub const BitReader = struct {
         self.next_bit = (self.next_bit + 1) % 8;
         return bit;
     }
-    pub fn read_bits(self: *Self, length: u32) (Error || ByteStream.Error)!u32 {
+    pub fn read_bits(self: *Self, length: u32) Error!u32 {
         var bits: u32 = 0;
         for (0..length) |i| {
             const bit = try self.read_bit();

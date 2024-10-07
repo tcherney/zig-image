@@ -8,20 +8,6 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
-pub const Error = error{
-    INVALID_SIGNATURE,
-    INVALID_CRC,
-    INVALID_COMPRESSION_METHOD,
-    INVALID_WINDOW_SIZE,
-    INVALID_DEFLATE_CHECKSUM,
-    INVALID_PRESET_DICT,
-    INVALID_BTYPE,
-    INVALID_HUFFMAN_SYMBOL,
-    INVALID_FILTER,
-    INVALID_COLOR_TYPE,
-    NOT_LOADED,
-};
-
 var crc_table: [256]u32 = [_]u32{0} ** 256;
 var crc_table_computed: bool = false;
 
@@ -62,11 +48,12 @@ const Chunk = struct {
     chunk_type: []u8 = undefined,
     chunk_data: []u8 = undefined,
     crc_check: u32 = undefined,
+    pub const Error = error{InvalidCRC} || std.mem.Allocator.Error || utils.ByteStream.Error;
     pub fn init(self: *Chunk, allocator: std.mem.Allocator) void {
         self.allocator = allocator;
     }
 
-    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) (std.mem.Allocator.Error || utils.ByteStream.Error)!void {
+    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) Error!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         std.debug.print("length {d}\n", .{self.length});
         self.data = try self.allocator.alloc(u8, self.length + 4);
@@ -89,7 +76,7 @@ const Chunk = struct {
         const calced_crc = calc_crc(self.data, @as(u32, @intCast(self.data.len)));
         std.debug.print("calculated crc {d}\n", .{calced_crc});
         if (calced_crc != self.crc_check) {
-            return Error.INVALID_CRC;
+            return Error.InvalidCRC;
         }
     }
     pub fn deinit(self: *Chunk) void {
@@ -126,8 +113,18 @@ pub const PNGImage = struct {
     plte_data: ?[]u8 = null,
     idat_data: []u8 = undefined,
     idat_data_len: usize = 0,
-
-    fn read_chucks(self: *PNGImage) (utils.ByteStream.Error || Error || std.mem.Allocator.Error)!void {
+    pub const Error = error{
+        InvalidSignature,
+        InvalidCompressionMethod,
+        InvalidWindowSize,
+        InvalidDeflateChecksum,
+        InvalidPresetDict,
+        InvalidBtype,
+        InvalidHuffmanSymbol,
+        InvalidColorType,
+        NotLoaded,
+    } || std.mem.Allocator.Error || utils.ByteStream.Error || utils.BitReader.Error || Chunk.Error || utils.ImageCore.Error;
+    fn read_chucks(self: *PNGImage) Error!void {
         self.chunks = std.ArrayList(Chunk).init(self.allocator);
         while (self.file_data.getPos() != self.file_data.getEndPos()) {
             var chunk: Chunk = Chunk{};
@@ -143,7 +140,7 @@ pub const PNGImage = struct {
         }
         std.debug.print("all chunks read\n", .{});
     }
-    fn handle_chunks(self: *PNGImage) std.mem.Allocator.Error!void {
+    fn handle_chunks(self: *PNGImage) Error!void {
         self.idat_data = try self.allocator.alloc(u8, self.idat_data_len);
         var index: usize = 0;
         for (self.chunks.items) |*chunk| {
@@ -180,46 +177,46 @@ pub const PNGImage = struct {
         self.interlace_method = chunk.chunk_data[12];
         std.debug.print("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
     }
-    fn read_sig(self: *PNGImage) (utils.ByteStream.Error || Error)!void {
+    fn read_sig(self: *PNGImage) Error!void {
         std.debug.print("reading signature\n", .{});
         const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
         for (signature) |sig| {
             const current = try self.file_data.readByte();
             if (current != sig) {
-                return Error.INVALID_SIGNATURE;
+                return Error.InvalidSignature;
             }
         }
     }
-    fn decompress(self: *PNGImage) (utils.Max_error || std.mem.Allocator.Error || utils.ByteStream.Error || Error || utils.BitReader.Error)!std.ArrayList(u8) {
+    fn decompress(self: *PNGImage) Error!std.ArrayList(u8) {
         var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .data = self.idat_data, .reverse_bit_order = true, .little_endian = true });
         std.debug.print("idat data len {d}\n", .{self.idat_data.len});
         defer bit_reader.deinit();
-        const CMF = try bit_reader.read_byte();
+        const CMF = try bit_reader.read(u8);
         const CM = CMF & 0xF;
         std.debug.print("compression method {d}\n", .{CM});
         if (CM != 8) {
-            return Error.INVALID_COMPRESSION_METHOD;
+            return Error.InvalidCompressionMethod;
         }
         const CINFO = (CMF >> 4) & 0xF;
         if (CINFO > 7) {
-            return Error.INVALID_WINDOW_SIZE;
+            return Error.InvalidWindowSize;
         }
-        const FLG = try bit_reader.read_byte();
+        const FLG = try bit_reader.read(u8);
         if ((@as(u32, @intCast(CMF)) * 256 + @as(u32, @intCast(FLG))) % 0x1F != 0) {
-            return Error.INVALID_DEFLATE_CHECKSUM;
+            return Error.InvalidDeflateChecksum;
         }
         const FDICT = (FLG >> 5) & 1;
         if (FDICT != 0) {
-            return Error.INVALID_PRESET_DICT;
+            return Error.InvalidPresetDict;
         }
         const ret: std.ArrayList(u8) = try self.inflate(&bit_reader);
-        var ADLER32: u32 = try bit_reader.read_byte();
-        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 8;
-        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 16;
-        ADLER32 |= @as(u32, @intCast(try bit_reader.read_byte())) << 24;
+        var ADLER32: u32 = try bit_reader.read(u8);
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read(u8))) << 8;
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read(u8))) << 16;
+        ADLER32 |= @as(u32, @intCast(try bit_reader.read(u8))) << 24;
         return ret;
     }
-    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader.Error || utils.ByteStream.Error || Error)!std.ArrayList(u8) {
+    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) Error!std.ArrayList(u8) {
         var BFINAL: u32 = 0;
         var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self.allocator);
         while (BFINAL == 0) {
@@ -233,12 +230,12 @@ pub const PNGImage = struct {
             } else if (BTYPE == 2) {
                 try self.inflate_block_dynamic(bit_reader, &ret);
             } else {
-                return Error.INVALID_BTYPE;
+                return Error.InvalidBtype;
             }
         }
         return ret;
     }
-    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader, tree: *utils.HuffmanTree(u16)) !u16 {
+    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader, tree: *utils.HuffmanTree(u16)) Error!u16 {
         var node = tree.root;
         while (node.left != null and node.right != null) {
             const bit = try bit_reader.read_bit();
@@ -246,18 +243,18 @@ pub const PNGImage = struct {
         }
         return node.symbol;
     }
-    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) (utils.Max_error || std.mem.Allocator.Error || utils.BitReader.Error || utils.ByteStream.Error || Error)!void {
+    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
         std.debug.print("inflate no compression\n", .{});
-        const LEN = try bit_reader.read_word();
+        const LEN = try bit_reader.read(u16);
         std.debug.print("LEN {d}\n", .{LEN});
-        const NLEN = try bit_reader.read_word();
+        const NLEN = try bit_reader.read(u16);
         std.debug.print("NLEN {d}\n", .{NLEN});
         for (0..LEN) |_| {
-            try ret.append(try bit_reader.read_byte());
+            try ret.append(try bit_reader.read(u8));
         }
     }
-    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) !*utils.HuffmanTree(u16) {
-        const MAX_BITS = try utils.max_array(u16, bit_length_list);
+    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) Error!*utils.HuffmanTree(u16) {
+        const MAX_BITS = utils.max_array(u16, bit_length_list);
         var bl_count: []u16 = try self.allocator.alloc(u16, MAX_BITS + 1);
         defer self.allocator.free(bl_count);
         for (0..bl_count.len) |i| {
@@ -287,7 +284,7 @@ pub const PNGImage = struct {
         }
         return tree;
     }
-    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader, literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader, literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) Error!void {
         while (true) {
             var symbol = try self.decode_symbol(bit_reader, literal_length_tree);
             if (symbol <= 255) {
@@ -306,7 +303,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader) !struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
+    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader) Error!struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
         const HLIT: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 257;
         const HDIST: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 1;
         const HCLEN: u16 = @as(u16, @intCast(try bit_reader.read_bits(4))) + 4;
@@ -342,7 +339,7 @@ pub const PNGImage = struct {
                     try bit_length_list.append(0);
                 }
             } else {
-                return Error.INVALID_HUFFMAN_SYMBOL;
+                return Error.InvalidHuffmanSymbol;
             }
         }
         code_length_tree.deinit();
@@ -359,7 +356,7 @@ pub const PNGImage = struct {
         const distance_tree = try self.bit_length_list_to_tree(bit_length_list.items[HLIT..], &distance_tree_alphabet);
         return .{ .literal_length_tree = literal_length_tree, .distance_tree = distance_tree };
     }
-    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
         std.debug.print("inflate fixed \n", .{});
         var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(bit_length_list);
@@ -392,7 +389,7 @@ pub const PNGImage = struct {
         distance_tree.deinit();
         self.allocator.destroy(distance_tree);
     }
-    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) !void {
+    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
         std.debug.print("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
@@ -452,7 +449,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn add_filtered_pixel(self: *PNGImage, ret: *std.ArrayList(u8), buffer_index: *usize, bit_index: *u3, data_index: usize, num_bytes_per_pixel: usize) (std.mem.Allocator.Error || Error)!void {
+    fn add_filtered_pixel(self: *PNGImage, ret: *std.ArrayList(u8), buffer_index: *usize, bit_index: *u3, data_index: usize, num_bytes_per_pixel: usize) Error!void {
         switch (self.color_type) {
             0 => {
                 switch (self.bit_depth) {
@@ -636,7 +633,7 @@ pub const PNGImage = struct {
             else => unreachable,
         }
     }
-    fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) (std.mem.Allocator.Error || Error)!void {
+    fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) Error!void {
         self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         var buffer_index: usize = 0;
@@ -648,7 +645,7 @@ pub const PNGImage = struct {
             3 => num_bytes_per_pixel = 1,
             4 => num_bytes_per_pixel = 2 * (self.bit_depth / 8),
             6 => num_bytes_per_pixel = 4 * (self.bit_depth / 8),
-            else => return Error.INVALID_COLOR_TYPE,
+            else => return Error.InvalidColorType,
         }
         var scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
         std.debug.print("bytes per pixel {d}\n", .{num_bytes_per_pixel});
@@ -694,7 +691,7 @@ pub const PNGImage = struct {
         }
         std.debug.print("index {d}\n", .{buffer_index});
     }
-    pub fn convert_grayscale(self: *PNGImage) !void {
+    pub fn convert_grayscale(self: *PNGImage) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().grayscale();
             defer self.allocator.free(data_copy);
@@ -705,10 +702,10 @@ pub const PNGImage = struct {
                 self.data.items[i].a = data_copy[i].a;
             }
         } else {
-            return Error.NOT_LOADED;
+            return Error.NotLoaded;
         }
     }
-    pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) !void {
+    pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
         std.debug.print("reading png\n", .{});
@@ -731,9 +728,9 @@ pub const PNGImage = struct {
         return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
 
-    pub fn write_BMP(self: *PNGImage, file_name: []const u8) !void {
+    pub fn write_BMP(self: *PNGImage, file_name: []const u8) Error!void {
         if (!self.loaded) {
-            return Error.NOT_LOADED;
+            return Error.NotLoaded;
         }
         try self.image_core().write_BMP(file_name);
     }

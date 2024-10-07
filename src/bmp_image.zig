@@ -2,13 +2,6 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
-pub const Error = error{
-    NOT_LOADED,
-    INVALID_BMP_HEADER,
-    INVALID_DIB_HEADER,
-    UNSUPPORTED_COMPRESSION_METHOD,
-};
-
 pub const BMPImage = struct {
     file_data: utils.BitReader = undefined,
     allocator: std.mem.Allocator = undefined,
@@ -18,7 +11,12 @@ pub const BMPImage = struct {
     dib_file_header: BMPDIBHeader = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
-
+    pub const Error = error{
+        NotLoaded,
+        InvalidBMPHeader,
+        InvalidDIBHeader,
+        UnsupportedCompressionMethod,
+    } || utils.BitReader.Error || std.mem.Allocator.Error || utils.ImageCore.Error;
     const BMPFileHeader = struct {
         bmp_type: [2]u8 = [_]u8{0} ** 2,
         file_size: u32 = undefined,
@@ -87,7 +85,7 @@ pub const BMPImage = struct {
         V5 = 124,
     };
 
-    pub fn convert_grayscale(self: *BMPImage) !void {
+    pub fn convert_grayscale(self: *BMPImage) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().grayscale();
             defer self.allocator.free(data_copy);
@@ -98,10 +96,10 @@ pub const BMPImage = struct {
                 self.data.items[i].a = data_copy[i].a;
             }
         } else {
-            return Error.NOT_LOADED;
+            return Error.NotLoaded;
         }
     }
-    pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) !void {
+    pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
         std.debug.print("reading bmp\n", .{});
@@ -117,7 +115,7 @@ pub const BMPImage = struct {
         return &self.data.items[y * self.width + x];
     }
 
-    fn read_color_data(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_color_data(self: *BMPImage) Error!void {
         const padding_size = self.width % 4;
         var i: usize = self.height - 1;
         var j: usize = 0;
@@ -127,118 +125,118 @@ pub const BMPImage = struct {
                     .BI_RGB => {
                         if (self.dib_file_header.bpp == 24) {
                             self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read_byte(),
-                                .g = try self.file_data.read_byte(),
-                                .r = try self.file_data.read_byte(),
+                                .b = try self.file_data.read(u8),
+                                .g = try self.file_data.read(u8),
+                                .r = try self.file_data.read(u8),
                             };
                         }
                     },
                     .BI_BITFIELDS => {
                         if (self.dib_file_header.bpp == 24) {
                             self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read_byte(),
-                                .g = try self.file_data.read_byte(),
-                                .r = try self.file_data.read_byte(),
+                                .b = try self.file_data.read(u8),
+                                .g = try self.file_data.read(u8),
+                                .r = try self.file_data.read(u8),
                             };
-                            _ = try self.file_data.read_byte();
+                            _ = try self.file_data.read(u8);
                         } else if (self.dib_file_header.bpp == 32) {
                             self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read_byte(),
-                                .g = try self.file_data.read_byte(),
-                                .r = try self.file_data.read_byte(),
+                                .b = try self.file_data.read(u8),
+                                .g = try self.file_data.read(u8),
+                                .r = try self.file_data.read(u8),
                             };
-                            _ = try self.file_data.read_byte();
+                            _ = try self.file_data.read(u8);
                         }
                     },
                     //TODO support other compression types
-                    else => return Error.UNSUPPORTED_COMPRESSION_METHOD,
+                    else => return Error.UnsupportedCompressionMethod,
                 }
             }
             for (0..padding_size) |_| {
-                _ = try self.file_data.read_byte();
+                _ = try self.file_data.read(u8);
             }
             j = 0;
             if (i == 0) break;
         }
     }
 
-    fn read_DIB_V2_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_DIB_V2_header(self: *BMPImage) Error!void {
         try self.read_DIB_V1_header();
-        self.dib_file_header.red_mask = try self.file_data.read_int();
-        self.dib_file_header.green_mask = try self.file_data.read_int();
-        self.dib_file_header.blue_mask = try self.file_data.read_int();
+        self.dib_file_header.red_mask = try self.file_data.read(u32);
+        self.dib_file_header.green_mask = try self.file_data.read(u32);
+        self.dib_file_header.blue_mask = try self.file_data.read(u32);
         std.debug.print("red mask {d}, green mask {d}, blue mask {d}\n", .{ self.dib_file_header.red_mask, self.dib_file_header.green_mask, self.dib_file_header.blue_mask });
     }
 
-    fn read_DIB_V3_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_DIB_V3_header(self: *BMPImage) Error!void {
         try self.read_DIB_V2_header();
-        self.dib_file_header.alpha_mask = try self.file_data.read_int();
+        self.dib_file_header.alpha_mask = try self.file_data.read(u32);
         std.debug.print("alpha mask {d}\n", .{self.dib_file_header.alpha_mask});
     }
 
-    fn read_DIB_V4_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_DIB_V4_header(self: *BMPImage) Error!void {
         try self.read_DIB_V3_header();
-        self.dib_file_header.color_space_type = try self.file_data.read_int();
+        self.dib_file_header.color_space_type = try self.file_data.read(u32);
         self.dib_file_header.ciexyz = BMPDIBHeader.CIEXYZ{};
         self.dib_file_header.ciexyz.ciexyz_x = BMPDIBHeader.Pixel32{
-            .r = try self.file_data.read_int(),
-            .g = try self.file_data.read_int(),
-            .b = try self.file_data.read_int(),
+            .r = try self.file_data.read(u32),
+            .g = try self.file_data.read(u32),
+            .b = try self.file_data.read(u32),
         };
         self.dib_file_header.ciexyz.ciexyz_y = BMPDIBHeader.Pixel32{
-            .r = try self.file_data.read_int(),
-            .g = try self.file_data.read_int(),
-            .b = try self.file_data.read_int(),
+            .r = try self.file_data.read(u32),
+            .g = try self.file_data.read(u32),
+            .b = try self.file_data.read(u32),
         };
         self.dib_file_header.ciexyz.ciexyz_z = BMPDIBHeader.Pixel32{
-            .r = try self.file_data.read_int(),
-            .g = try self.file_data.read_int(),
-            .b = try self.file_data.read_int(),
+            .r = try self.file_data.read(u32),
+            .g = try self.file_data.read(u32),
+            .b = try self.file_data.read(u32),
         };
-        self.dib_file_header.gamma_red = try self.file_data.read_int();
-        self.dib_file_header.gamma_green = try self.file_data.read_int();
-        self.dib_file_header.gamma_blue = try self.file_data.read_int();
+        self.dib_file_header.gamma_red = try self.file_data.read(u32);
+        self.dib_file_header.gamma_green = try self.file_data.read(u32);
+        self.dib_file_header.gamma_blue = try self.file_data.read(u32);
     }
 
-    fn read_DIB_V5_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_DIB_V5_header(self: *BMPImage) Error!void {
         try self.read_DIB_V4_header();
-        self.dib_file_header.intent = try self.file_data.read_int();
-        self.dib_file_header.profile_data = try self.file_data.read_int();
-        self.dib_file_header.profile_size = try self.file_data.read_int();
-        self.dib_file_header.reserved = try self.file_data.read_int();
+        self.dib_file_header.intent = try self.file_data.read(u32);
+        self.dib_file_header.profile_data = try self.file_data.read(u32);
+        self.dib_file_header.profile_size = try self.file_data.read(u32);
+        self.dib_file_header.reserved = try self.file_data.read(u32);
     }
 
-    fn read_DIB_V1_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
-        self.width = try self.file_data.read_int();
-        self.height = try self.file_data.read_int();
-        self.dib_file_header.color_planes = try self.file_data.read_word();
+    fn read_DIB_V1_header(self: *BMPImage) Error!void {
+        self.width = try self.file_data.read(u32);
+        self.height = try self.file_data.read(u32);
+        self.dib_file_header.color_planes = try self.file_data.read(u16);
         if (self.dib_file_header.color_planes != 1) {
-            return Error.INVALID_DIB_HEADER;
+            return Error.InvalidDIBHeader;
         }
-        self.dib_file_header.bpp = try self.file_data.read_word();
-        self.dib_file_header.compression_method = @enumFromInt(try self.file_data.read_int());
-        self.dib_file_header.image_size = try self.file_data.read_int();
-        self.dib_file_header.horizontal_res = try self.file_data.read_int();
-        self.dib_file_header.vertical_res = try self.file_data.read_int();
-        self.dib_file_header.num_col_palette = try self.file_data.read_int();
-        self.dib_file_header.important_colors = try self.file_data.read_int();
+        self.dib_file_header.bpp = try self.file_data.read(u16);
+        self.dib_file_header.compression_method = @enumFromInt(try self.file_data.read(u32));
+        self.dib_file_header.image_size = try self.file_data.read(u32);
+        self.dib_file_header.horizontal_res = try self.file_data.read(u32);
+        self.dib_file_header.vertical_res = try self.file_data.read(u32);
+        self.dib_file_header.num_col_palette = try self.file_data.read(u32);
+        self.dib_file_header.important_colors = try self.file_data.read(u32);
         std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp, self.dib_file_header.compression_method, self.dib_file_header.image_size, self.dib_file_header.horizontal_res, self.dib_file_header.vertical_res, self.dib_file_header.num_col_palette, self.dib_file_header.important_colors });
     }
 
-    fn read_DIB_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_DIB_header(self: *BMPImage) Error!void {
         self.dib_file_header = BMPDIBHeader{};
-        self.dib_file_header.size = try self.file_data.read_int();
+        self.dib_file_header.size = try self.file_data.read(u32);
         std.debug.print("header_size {d}\n", .{self.dib_file_header.size});
         self.dib_file_header.header_type = @enumFromInt(self.dib_file_header.size);
         switch (self.dib_file_header.header_type) {
             .OS => {
-                self.width = try self.file_data.read_word();
-                self.height = try self.file_data.read_word();
-                self.dib_file_header.color_planes = try self.file_data.read_word();
+                self.width = try self.file_data.read(u16);
+                self.height = try self.file_data.read(u16);
+                self.dib_file_header.color_planes = try self.file_data.read(u16);
                 if (self.dib_file_header.color_planes != 1) {
-                    return Error.INVALID_DIB_HEADER;
+                    return Error.InvalidDIBHeader;
                 }
-                self.dib_file_header.bpp = try self.file_data.read_word();
+                self.dib_file_header.bpp = try self.file_data.read(u16);
                 std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}\n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp });
             },
             .V1 => {
@@ -259,23 +257,23 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_BMP_header(self: *BMPImage) (utils.ByteStream.Error || utils.BitReader.Error || Error)!void {
+    fn read_BMP_header(self: *BMPImage) Error!void {
         // type
-        self.bmp_file_header.bmp_type[0] = try self.file_data.read_byte();
-        self.bmp_file_header.bmp_type[1] = try self.file_data.read_byte();
+        self.bmp_file_header.bmp_type[0] = try self.file_data.read(u8);
+        self.bmp_file_header.bmp_type[1] = try self.file_data.read(u8);
         //TODO handle types
         if (!std.mem.eql(u8, &self.bmp_file_header.bmp_type, "BM")) {
-            return Error.INVALID_BMP_HEADER;
+            return Error.InvalidBMPHeader;
         }
         std.debug.print("file type {s}\n", .{self.bmp_file_header.bmp_type});
         // size
-        self.bmp_file_header.file_size = try self.file_data.read_int();
+        self.bmp_file_header.file_size = try self.file_data.read(u32);
         std.debug.print("file size {d}\n", .{self.bmp_file_header.file_size});
         // reserved
-        self.bmp_file_header.reserved1 = try self.file_data.read_word();
-        self.bmp_file_header.reserved2 = try self.file_data.read_word();
+        self.bmp_file_header.reserved1 = try self.file_data.read(u16);
+        self.bmp_file_header.reserved2 = try self.file_data.read(u16);
         // offset
-        self.bmp_file_header.offset = try self.file_data.read_int();
+        self.bmp_file_header.offset = try self.file_data.read(u32);
         std.debug.print("offset {d}\n", .{self.bmp_file_header.offset});
     }
 
@@ -283,9 +281,9 @@ pub const BMPImage = struct {
         return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
 
-    pub fn write_BMP(self: *BMPImage, file_name: []const u8) !void {
+    pub fn write_BMP(self: *BMPImage, file_name: []const u8) Error!void {
         if (!self.loaded) {
-            return Error.NOT_LOADED;
+            return Error.NotLoaded;
         }
         try self.image_core().write_BMP(file_name);
     }

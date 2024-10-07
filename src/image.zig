@@ -16,7 +16,7 @@ pub const Pixel = utils.Pixel;
 pub const JPEGImage: type = jpeg_image.JPEGImage;
 pub const PNGImage: type = png_image.PNGImage;
 pub const BMPImage: type = bmp_image.BMPImage;
-pub const Error = jpeg_image.Error || png_image.Error || bmp_image.Error;
+pub const Error = JPEGImage.Error || PNGImage.Error || BMPImage.Error;
 
 test "JPEG" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
