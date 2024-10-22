@@ -28,7 +28,7 @@ test "JPEG" {
     try image.image_core().write_BMP("cat.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        std.log.warn("Leaked!\n", .{});
     }
 }
 
@@ -42,7 +42,7 @@ test "PNG" {
     try image.image_core().write_BMP("shield.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        std.log.warn("Leaked!\n", .{});
     }
 }
 
@@ -56,6 +56,6 @@ test "BMP" {
     try image.image_core().write_BMP("parrot2.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        std.log.warn("Leaked!\n", .{});
     }
 }

@@ -2,6 +2,8 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+const BMP_LOG = std.log.scoped(.bmp_image);
+
 pub const BMPImage = struct {
     file_data: utils.BitReader = undefined,
     allocator: std.mem.Allocator = undefined,
@@ -102,7 +104,7 @@ pub const BMPImage = struct {
     pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
-        std.debug.print("reading bmp\n", .{});
+        BMP_LOG.info("reading bmp\n", .{});
         try self.read_BMP_header();
         try self.read_DIB_header();
         self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
@@ -165,13 +167,13 @@ pub const BMPImage = struct {
         self.dib_file_header.red_mask = try self.file_data.read(u32);
         self.dib_file_header.green_mask = try self.file_data.read(u32);
         self.dib_file_header.blue_mask = try self.file_data.read(u32);
-        std.debug.print("red mask {d}, green mask {d}, blue mask {d}\n", .{ self.dib_file_header.red_mask, self.dib_file_header.green_mask, self.dib_file_header.blue_mask });
+        BMP_LOG.info("red mask {d}, green mask {d}, blue mask {d}\n", .{ self.dib_file_header.red_mask, self.dib_file_header.green_mask, self.dib_file_header.blue_mask });
     }
 
     fn read_DIB_V3_header(self: *BMPImage) Error!void {
         try self.read_DIB_V2_header();
         self.dib_file_header.alpha_mask = try self.file_data.read(u32);
-        std.debug.print("alpha mask {d}\n", .{self.dib_file_header.alpha_mask});
+        BMP_LOG.info("alpha mask {d}\n", .{self.dib_file_header.alpha_mask});
     }
 
     fn read_DIB_V4_header(self: *BMPImage) Error!void {
@@ -220,13 +222,13 @@ pub const BMPImage = struct {
         self.dib_file_header.vertical_res = try self.file_data.read(u32);
         self.dib_file_header.num_col_palette = try self.file_data.read(u32);
         self.dib_file_header.important_colors = try self.file_data.read(u32);
-        std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp, self.dib_file_header.compression_method, self.dib_file_header.image_size, self.dib_file_header.horizontal_res, self.dib_file_header.vertical_res, self.dib_file_header.num_col_palette, self.dib_file_header.important_colors });
+        BMP_LOG.info("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp, self.dib_file_header.compression_method, self.dib_file_header.image_size, self.dib_file_header.horizontal_res, self.dib_file_header.vertical_res, self.dib_file_header.num_col_palette, self.dib_file_header.important_colors });
     }
 
     fn read_DIB_header(self: *BMPImage) Error!void {
         self.dib_file_header = BMPDIBHeader{};
         self.dib_file_header.size = try self.file_data.read(u32);
-        std.debug.print("header_size {d}\n", .{self.dib_file_header.size});
+        BMP_LOG.info("header_size {d}\n", .{self.dib_file_header.size});
         self.dib_file_header.header_type = @enumFromInt(self.dib_file_header.size);
         switch (self.dib_file_header.header_type) {
             .OS => {
@@ -237,7 +239,7 @@ pub const BMPImage = struct {
                     return Error.InvalidDIBHeader;
                 }
                 self.dib_file_header.bpp = try self.file_data.read(u16);
-                std.debug.print("width {d}, height {d}, color_planes {d}, bpp {d}\n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp });
+                BMP_LOG.info("width {d}, height {d}, color_planes {d}, bpp {d}\n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp });
             },
             .V1 => {
                 try self.read_DIB_V1_header();
@@ -265,16 +267,16 @@ pub const BMPImage = struct {
         if (!std.mem.eql(u8, &self.bmp_file_header.bmp_type, "BM")) {
             return Error.InvalidBMPHeader;
         }
-        std.debug.print("file type {s}\n", .{self.bmp_file_header.bmp_type});
+        BMP_LOG.info("file type {s}\n", .{self.bmp_file_header.bmp_type});
         // size
         self.bmp_file_header.file_size = try self.file_data.read(u32);
-        std.debug.print("file size {d}\n", .{self.bmp_file_header.file_size});
+        BMP_LOG.info("file size {d}\n", .{self.bmp_file_header.file_size});
         // reserved
         self.bmp_file_header.reserved1 = try self.file_data.read(u16);
         self.bmp_file_header.reserved2 = try self.file_data.read(u16);
         // offset
         self.bmp_file_header.offset = try self.file_data.read(u32);
-        std.debug.print("offset {d}\n", .{self.bmp_file_header.offset});
+        BMP_LOG.info("offset {d}\n", .{self.bmp_file_header.offset});
     }
 
     pub fn image_core(self: *BMPImage) utils.ImageCore {
@@ -302,7 +304,7 @@ test "CAT" {
     try image.write_BMP("os.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        BMP_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -314,7 +316,7 @@ test "V3" {
     try image.write_BMP("v3.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        BMP_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -326,6 +328,6 @@ test "V5" {
     try image.write_BMP("v5.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        BMP_LOG.warn("Leaked!\n", .{});
     }
 }

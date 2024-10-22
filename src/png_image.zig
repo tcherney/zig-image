@@ -8,6 +8,8 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+const PNG_LOG = std.log.scoped(.png_image);
+
 var crc_table: [256]u32 = [_]u32{0} ** 256;
 var crc_table_computed: bool = false;
 
@@ -55,26 +57,26 @@ const Chunk = struct {
 
     pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) Error!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
-        std.debug.print("length {d}\n", .{self.length});
+        PNG_LOG.info("length {d}\n", .{self.length});
         self.data = try self.allocator.alloc(u8, self.length + 4);
         self.data[0] = try file_data.readByte();
         self.data[1] = try file_data.readByte();
         self.data[2] = try file_data.readByte();
         self.data[3] = try file_data.readByte();
         self.chunk_type = self.data[0..4];
-        std.debug.print("chunk type {s}\n", .{self.chunk_type});
+        PNG_LOG.info("chunk type {s}\n", .{self.chunk_type});
         for (4..self.data.len) |i| {
             self.data[i] = try file_data.readByte();
-            //std.debug.print("{x} ", .{self._data[i]});
+            //PNG_LOG.info("{x} ", .{self._data[i]});
         }
-        //std.debug.print("\n", .{});
+        //PNG_LOG.info("\n", .{});
         self.chunk_data = self.data[4..self.data.len];
         self.crc_check = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
-        std.debug.print("crc {d}\n", .{self.crc_check});
+        PNG_LOG.info("crc {d}\n", .{self.crc_check});
     }
     pub fn verify_crc(self: *Chunk) Error!void {
         const calced_crc = calc_crc(self.data, @as(u32, @intCast(self.data.len)));
-        std.debug.print("calculated crc {d}\n", .{calced_crc});
+        PNG_LOG.info("calculated crc {d}\n", .{calced_crc});
         if (calced_crc != self.crc_check) {
             return Error.InvalidCRC;
         }
@@ -138,7 +140,7 @@ pub const PNGImage = struct {
                 break;
             }
         }
-        std.debug.print("all chunks read\n", .{});
+        PNG_LOG.info("all chunks read\n", .{});
     }
     fn handle_chunks(self: *PNGImage) Error!void {
         self.idat_data = try self.allocator.alloc(u8, self.idat_data_len);
@@ -156,10 +158,10 @@ pub const PNGImage = struct {
                 gamma_int = (gamma_int << 8) | chunk.chunk_data[2];
                 gamma_int = (gamma_int << 8) | chunk.chunk_data[3];
                 self.gamma = @as(f32, @floatFromInt(gamma_int)) / 100000.0;
-                std.debug.print("gamma {d}\n", .{self.gamma});
+                PNG_LOG.info("gamma {d}\n", .{self.gamma});
             }
         }
-        std.debug.print("index = {d}, len = {d}\n", .{ index, self.idat_data_len });
+        PNG_LOG.info("index = {d}, len = {d}\n", .{ index, self.idat_data_len });
     }
     fn handle_IDAT(self: *PNGImage, chunk: *Chunk, index: *usize) void {
         for (chunk.chunk_data) |data| {
@@ -175,10 +177,10 @@ pub const PNGImage = struct {
         self.compression_method = chunk.chunk_data[10];
         self.filter_method = chunk.chunk_data[11];
         self.interlace_method = chunk.chunk_data[12];
-        std.debug.print("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
+        PNG_LOG.info("width {d}, height {d}, bit_depth {d}, color_type {d}, compression_method {d}, filter_method {d}, interlace_method {d}\n", .{ self.width, self.height, self.bit_depth, self.color_type, self.compression_method, self.filter_method, self.interlace_method });
     }
     fn read_sig(self: *PNGImage) Error!void {
-        std.debug.print("reading signature\n", .{});
+        PNG_LOG.info("reading signature\n", .{});
         const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
         for (signature) |sig| {
             const current = try self.file_data.readByte();
@@ -189,11 +191,11 @@ pub const PNGImage = struct {
     }
     fn decompress(self: *PNGImage) Error!std.ArrayList(u8) {
         var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .data = self.idat_data, .reverse_bit_order = true, .little_endian = true });
-        std.debug.print("idat data len {d}\n", .{self.idat_data.len});
+        PNG_LOG.info("idat data len {d}\n", .{self.idat_data.len});
         defer bit_reader.deinit();
         const CMF = try bit_reader.read(u8);
         const CM = CMF & 0xF;
-        std.debug.print("compression method {d}\n", .{CM});
+        PNG_LOG.info("compression method {d}\n", .{CM});
         if (CM != 8) {
             return Error.InvalidCompressionMethod;
         }
@@ -222,7 +224,7 @@ pub const PNGImage = struct {
         while (BFINAL == 0) {
             BFINAL = try bit_reader.read_bit();
             const BTYPE = try bit_reader.read_bits(2);
-            std.debug.print("BFINAL {d}, BTYPE {d}\n", .{ BFINAL, BTYPE });
+            PNG_LOG.info("BFINAL {d}, BTYPE {d}\n", .{ BFINAL, BTYPE });
             if (BTYPE == 0) {
                 try self.inflate_block_no_compression(bit_reader, &ret);
             } else if (BTYPE == 1) {
@@ -244,11 +246,11 @@ pub const PNGImage = struct {
         return node.symbol;
     }
     fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
-        std.debug.print("inflate no compression\n", .{});
+        PNG_LOG.info("inflate no compression\n", .{});
         const LEN = try bit_reader.read(u16);
-        std.debug.print("LEN {d}\n", .{LEN});
+        PNG_LOG.info("LEN {d}\n", .{LEN});
         const NLEN = try bit_reader.read(u16);
-        std.debug.print("NLEN {d}\n", .{NLEN});
+        PNG_LOG.info("NLEN {d}\n", .{NLEN});
         for (0..LEN) |_| {
             try ret.append(try bit_reader.read(u8));
         }
@@ -296,7 +298,7 @@ pub const PNGImage = struct {
                 const length = @as(u16, @intCast(try bit_reader.read_bits(LengthExtraBits[symbol]) + LengthBase[symbol]));
                 const distance_symbol = try self.decode_symbol(bit_reader, distance_tree);
                 const distance = @as(u16, @intCast(try bit_reader.read_bits(DistanceExtraBits[distance_symbol]) + DistanceBase[distance_symbol]));
-                //std.debug.print("ret.items.len {d}, distance {d}\n", .{ ret.items.len, distance });
+                //PNG_LOG.info("ret.items.len {d}, distance {d}\n", .{ ret.items.len, distance });
                 for (0..length) |_| {
                     try ret.append(ret.items[ret.items.len - distance]);
                 }
@@ -357,7 +359,7 @@ pub const PNGImage = struct {
         return .{ .literal_length_tree = literal_length_tree, .distance_tree = distance_tree };
     }
     fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
-        std.debug.print("inflate fixed \n", .{});
+        PNG_LOG.info("inflate fixed \n", .{});
         var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(bit_length_list);
         for (0..144) |_| {
@@ -390,7 +392,7 @@ pub const PNGImage = struct {
         self.allocator.destroy(distance_tree);
     }
     fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
-        std.debug.print("inflate dynamic \n", .{});
+        PNG_LOG.info("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
         trees.literal_length_tree.deinit();
@@ -399,12 +401,12 @@ pub const PNGImage = struct {
         self.allocator.destroy(trees.distance_tree);
     }
     fn paeth_predictor(_: *PNGImage, a: u8, b: u8, c: u8) u8 {
-        //std.debug.print("a {d}, b {d}, c {d}\n", .{ a, b, c });
+        //PNG_LOG.info("a {d}, b {d}, c {d}\n", .{ a, b, c });
         var p: i16 = @as(i16, @intCast(b)) - @as(i16, @intCast(c));
         p += a;
         const pa = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(a)))));
         const pb = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(b)))));
-        //std.debug.print("p {d} c {d}\n", .{ p, c });
+        //PNG_LOG.info("p {d} c {d}\n", .{ p, c });
         const pc = @as(u8, @truncate(@abs(@as(i16, @intCast(p)) - @as(i16, @intCast(c)))));
         if (pa <= pb and pa <= pc) {
             return a;
@@ -444,7 +446,7 @@ pub const PNGImage = struct {
                 const left = if (i >= num_bytes_per_pixel) scanline[i - num_bytes_per_pixel] else 0;
                 const prior = if (previous_scanline != null) previous_scanline.?[i] else 0;
                 const prior_left = if (i >= num_bytes_per_pixel and previous_scanline != null) previous_scanline.?[i - num_bytes_per_pixel] else 0;
-                //std.debug.print("left {d}, prior {d}, prior_left {d}\n", .{ left, prior, prior_left });
+                //PNG_LOG.info("left {d}, prior {d}, prior_left {d}\n", .{ left, prior, prior_left });
                 scanline[i] = @as(u8, @intCast((@as(u16, @intCast(scanline[i])) + @as(u16, @intCast(self.paeth_predictor(left, prior, prior_left)))) % 256));
             }
         }
@@ -589,11 +591,11 @@ pub const PNGImage = struct {
                         //const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 3]));
                         // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
                         // const bkgd = max_pixel;
-                        // //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        // //PNG_LOG.info("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
                         // var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
                         // var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]))));
                         // var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 2]))));
-                        // //std.debug.print("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        // //PNG_LOG.info("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
                         // r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
@@ -611,11 +613,11 @@ pub const PNGImage = struct {
                         const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
                         // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
                         // const bkgd = max_pixel;
-                        // //std.debug.print("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
+                        // //PNG_LOG.info("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
                         // var r: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
                         // var g: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]))));
                         // var b: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5]))));
-                        // //std.debug.print("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
+                        // //PNG_LOG.info("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
                         // r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
                         // b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
@@ -648,13 +650,13 @@ pub const PNGImage = struct {
             else => return Error.InvalidColorType,
         }
         var scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
-        std.debug.print("bytes per pixel {d}\n", .{num_bytes_per_pixel});
+        PNG_LOG.info("bytes per pixel {d}\n", .{num_bytes_per_pixel});
         buffer_index = 0;
         var data_index: usize = 0;
         if (self.interlace_method == 0) {
             for (0..self.height) |_| {
                 const filter_type: u8 = ret.items[buffer_index];
-                //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+                //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                 buffer_index += 1;
                 const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
                 previous_index = buffer_index;
@@ -677,7 +679,7 @@ pub const PNGImage = struct {
                     var col: usize = StartingCol[pass];
                     var bit_index: u3 = 7;
                     const filter_type: u8 = ret.items[buffer_index];
-                    //std.debug.print("filter type {d} at position {d}\n", .{ filter_type, i });
+                    //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                     buffer_index += 1;
                     scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
                     const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
@@ -689,7 +691,7 @@ pub const PNGImage = struct {
                 }
             }
         }
-        std.debug.print("index {d}\n", .{buffer_index});
+        PNG_LOG.info("index {d}\n", .{buffer_index});
     }
     pub fn convert_grayscale(self: *PNGImage) Error!void {
         if (self.loaded) {
@@ -708,14 +710,14 @@ pub const PNGImage = struct {
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
-        std.debug.print("reading png\n", .{});
+        PNG_LOG.info("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
         try self.handle_chunks();
         var ret: std.ArrayList(u8) = try self.decompress();
-        std.debug.print("uncompressed bytes {d}\n", .{ret.items.len});
+        PNG_LOG.info("uncompressed bytes {d}\n", .{ret.items.len});
         try self.data_stream_to_rgb(&ret);
-        std.debug.print("num pixels {d}\n", .{self.data.items.len});
+        PNG_LOG.info("num pixels {d}\n", .{self.data.items.len});
         defer std.ArrayList(u8).deinit(ret);
         self.loaded = true;
     }
@@ -754,7 +756,7 @@ test "BASIC 8" {
     try image.write_BMP("basn2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -766,7 +768,7 @@ test "BASIC 16" {
     try image.write_BMP("basn2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -778,7 +780,7 @@ test "BASIC NO FILTER" {
     try image.write_BMP("f00n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -790,7 +792,7 @@ test "BASIC SUB FILTER" {
     try image.write_BMP("f01n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -802,7 +804,7 @@ test "BASIC UP FILTER" {
     try image.write_BMP("f02n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -814,7 +816,7 @@ test "BASIC AVG FILTER" {
     try image.write_BMP("f03n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -826,7 +828,7 @@ test "BASIC 8 ALPHA" {
     try image.write_BMP("basn6a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -838,7 +840,7 @@ test "BASIC 16 ALPHA" {
     try image.write_BMP("basn6a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -850,7 +852,7 @@ test "BW" {
     try image.write_BMP("basn0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -862,7 +864,7 @@ test "GRAY 2" {
     try image.write_BMP("basn0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -874,7 +876,7 @@ test "GRAY 4" {
     try image.write_BMP("basn0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -886,7 +888,7 @@ test "GRAY 8" {
     try image.write_BMP("basn0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -898,7 +900,7 @@ test "GRAY 16" {
     try image.write_BMP("basn0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -910,7 +912,7 @@ test "GRAY 8 ALPHA" {
     try image.write_BMP("basn4a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -922,7 +924,7 @@ test "GRAY 16 ALPHA" {
     try image.write_BMP("basn4a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -934,7 +936,7 @@ test "PALETTE 8 GRAY" {
     try image.write_BMP("ps2n2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -946,7 +948,7 @@ test "BW INTERLACE" {
     try image.write_BMP("basi0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -958,7 +960,7 @@ test "BW 2 INTERLACE" {
     try image.write_BMP("basi0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -970,7 +972,7 @@ test "BW 4 INTERLACE" {
     try image.write_BMP("basi0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -982,7 +984,7 @@ test "BW 8 INTERLACE" {
     try image.write_BMP("basi0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -994,7 +996,7 @@ test "BW 16 INTERLACE" {
     try image.write_BMP("basi0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -1006,7 +1008,7 @@ test "COLOR 8 INTERLACE" {
     try image.write_BMP("basi2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -1018,6 +1020,6 @@ test "COLOR 16 INTERLACE" {
     try image.write_BMP("basi2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        PNG_LOG.warn("Leaked!\n", .{});
     }
 }

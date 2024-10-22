@@ -343,7 +343,7 @@ pub const ImageCore = struct {
 };
 
 pub fn timer_end() void {
-    std.debug.print("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
+    std.log.info("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
     timer.reset();
 }
 
@@ -779,6 +779,6 @@ test "HUFFMAN_TREE" {
     t.deinit();
     allocator.destroy(t);
     if (gpa.deinit() == .leak) {
-        std.debug.print("Leaked!\n", .{});
+        std.log.warn("Leaked!\n", .{});
     }
 }
