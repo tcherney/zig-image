@@ -707,6 +707,21 @@ pub const PNGImage = struct {
             return Error.NotLoaded;
         }
     }
+    pub fn reflection(self: *PNGImage, comptime axis: @Type(.EnumLiteral)) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().reflection(axis);
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].r = data_copy[i].r;
+                self.data.items[i].g = data_copy[i].g;
+                self.data.items[i].b = data_copy[i].b;
+                self.data.items[i].a = data_copy[i].a;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
@@ -754,6 +769,45 @@ test "BASIC 8" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.write_BMP("basn2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 REFLECT_X" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.reflection(.x);
+    try image.write_BMP("basic_reflectx.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 REFLECT_Y" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.reflection(.y);
+    try image.write_BMP("basic_reflecty.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 REFLECT_XY" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.reflection(.xy);
+    try image.write_BMP("basic_reflectxy.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});

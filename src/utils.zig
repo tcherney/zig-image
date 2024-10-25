@@ -1,4 +1,3 @@
-// Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 const std = @import("std");
 var timer: std.time.Timer = undefined;
 pub fn timer_start() std.time.Timer.Error!void {
@@ -282,6 +281,52 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
+    //TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
+    //reflect along an axis x, y or both
+    pub fn reflection(self: *const Self, comptime axis: @Type(.EnumLiteral)) Error![]Pixel {
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
+        errdefer self.allocator.free(data_copy);
+        switch (axis) {
+            .x => {
+                for (0..self.height) |y| {
+                    for (0..self.width) |x| {
+                        data_copy[y * self.width + x].r = self.data[y * self.width + (self.width - 1 - x)].r;
+                        data_copy[y * self.width + x].g = self.data[y * self.width + (self.width - 1 - x)].g;
+                        data_copy[y * self.width + x].b = self.data[y * self.width + (self.width - 1 - x)].b;
+                        data_copy[y * self.width + x].a = self.data[y * self.width + (self.width - 1 - x)].a;
+                    }
+                }
+            },
+            .y => {
+                for (0..self.height) |y| {
+                    for (0..self.width) |x| {
+                        data_copy[y * self.width + x].r = self.data[(self.height - 1 - y) * self.width + x].r;
+                        data_copy[y * self.width + x].g = self.data[(self.height - 1 - y) * self.width + x].g;
+                        data_copy[y * self.width + x].b = self.data[(self.height - 1 - y) * self.width + x].b;
+                        data_copy[y * self.width + x].a = self.data[(self.height - 1 - y) * self.width + x].a;
+                    }
+                }
+            },
+            .xy, .yx => {
+                for (0..self.height) |y| {
+                    for (0..self.width) |x| {
+                        data_copy[y * self.width + x].r = self.data[(self.height - 1 - y) * self.width + (self.width - 1 - x)].r;
+                        data_copy[y * self.width + x].g = self.data[(self.height - 1 - y) * self.width + (self.width - 1 - x)].g;
+                        data_copy[y * self.width + x].b = self.data[(self.height - 1 - y) * self.width + (self.width - 1 - x)].b;
+                        data_copy[y * self.width + x].a = self.data[(self.height - 1 - y) * self.width + (self.width - 1 - x)].a;
+                    }
+                }
+            },
+            else => unreachable,
+        }
+        return data_copy;
+    }
+    pub fn rotate(self: *const Self) Error![]Pixel {
+        _ = try self.allocator.dupe(Pixel, self.data);
+    }
+    pub fn shear(self: *const Self) Error![]Pixel {
+        _ = try self.allocator.dupe(Pixel, self.data);
+    }
     pub fn write_BMP(self: *const Self, file_name: []const u8) Error!void {
         const image_file = try std.fs.cwd().createFile(file_name, .{});
         defer image_file.close();
@@ -452,6 +497,7 @@ pub fn HuffmanTree(comptime T: type) type {
     };
 }
 
+// Small utility struct that gives basic byte by byte reading of a file after its been loaded into memory
 pub const ByteStream = struct {
     index: usize = 0,
     buffer: []u8 = undefined,

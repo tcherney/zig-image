@@ -101,6 +101,20 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
+    pub fn reflection(self: *BMPImage, comptime axis: @Type(.EnumLiteral)) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().reflection(axis);
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].r = data_copy[i].r;
+                self.data.items[i].g = data_copy[i].g;
+                self.data.items[i].b = data_copy[i].b;
+                self.data.items[i].a = data_copy[i].a;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
     pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
@@ -302,6 +316,42 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "CAT_REFLECT_X" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.reflection(.x);
+    try image.write_BMP("cat_reflectx_bmp.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "CAT_REFLECT_Y" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.reflection(.y);
+    try image.write_BMP("cat_reflecty_bmp.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "CAT_REFLECT_XY" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.reflection(.xy);
+    try image.write_BMP("cat_reflectxy_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
