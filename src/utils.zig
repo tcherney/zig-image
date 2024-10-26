@@ -46,13 +46,13 @@ pub const ImageCore = struct {
         r: f32 = 0,
         g: f32 = 0,
         b: f32 = 0,
-        a: ?f32 = null,
+        a: f32 = 255,
         pub fn sub(self: *const BicubicPixel, other: BicubicPixel) BicubicPixel {
             return .{
                 .r = self.r - other.r,
                 .g = self.g - other.g,
                 .b = self.b - other.b,
-                .a = if (self.a != null and other.a != null) self.a.? - other.a.? else null,
+                .a = self.a - other.a,
             };
         }
         pub fn add(self: *const BicubicPixel, other: BicubicPixel) BicubicPixel {
@@ -60,7 +60,7 @@ pub const ImageCore = struct {
                 .r = self.r + other.r,
                 .g = self.g + other.g,
                 .b = self.b + other.b,
-                .a = if (self.a != null and other.a != null) self.a.? + other.a.? else null,
+                .a = self.a + other.a,
             };
         }
         pub fn scale(self: *const BicubicPixel, scalar: f32) BicubicPixel {
@@ -68,7 +68,7 @@ pub const ImageCore = struct {
                 .r = self.r * scalar,
                 .g = self.g * scalar,
                 .b = self.b * scalar,
-                .a = if (self.a != null) self.a.? * scalar else null,
+                .a = self.a * scalar,
             };
         }
     };
@@ -108,14 +108,14 @@ pub const ImageCore = struct {
                     new_pixel.r = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.r)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.r)) * (src_y - src_y_floor))));
                     new_pixel.g = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.g)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.g)) * (src_y - src_y_floor))));
                     new_pixel.b = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.b)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.b)) * (src_y - src_y_floor))));
-                    new_pixel.a = if (q1.a != null and q2.a != null) @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_y - src_y_floor)))) else null;
+                    new_pixel.a = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_y - src_y_floor))));
                 } else if (src_y_ceil == src_y_floor) {
                     const q1 = self.data[src_y_floor_indx * self.width + src_x_floor_indx];
                     const q2 = self.data[src_y_ceil_indx * self.width + src_x_ceil_indx];
                     new_pixel.r = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.r)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.r)) * (src_x - src_x_floor))));
                     new_pixel.g = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.g)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.g)) * (src_x - src_x_floor))));
                     new_pixel.b = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.b)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.b)) * (src_x - src_x_floor))));
-                    new_pixel.a = if (q1.a != null and q2.a != null) @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_x - src_x_floor)))) else null;
+                    new_pixel.a = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_x - src_x_floor))));
                 } else {
                     const v1 = self.data[src_y_floor_indx * self.width + src_x_floor_indx];
                     const v2 = self.data[src_y_floor_indx * self.width + src_x_ceil_indx];
@@ -126,18 +126,18 @@ pub const ImageCore = struct {
                         .r = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.r)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.r)) * (src_x - src_x_floor)))),
                         .g = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.g)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.g)) * (src_x - src_x_floor)))),
                         .b = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.b)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.b)) * (src_x - src_x_floor)))),
-                        .a = if (v1.a != null and v2.a != null) @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.a.?)) * (src_x - src_x_floor)))) else null,
+                        .a = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.a.?)) * (src_x - src_x_floor)))),
                     };
                     const q2 = .{
                         .r = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.r)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.r)) * (src_x - src_x_floor)))),
                         .g = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.g)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.g)) * (src_x - src_x_floor)))),
                         .b = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.b)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.b)) * (src_x - src_x_floor)))),
-                        .a = if (v3.a != null and v4.a != null) @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.a.?)) * (src_x - src_x_floor)))) else null,
+                        .a = @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.a.?)) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.a.?)) * (src_x - src_x_floor)))),
                     };
                     new_pixel.r = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.r)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.r)) * (src_y - src_y_floor))));
                     new_pixel.g = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.g)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.g)) * (src_y - src_y_floor))));
                     new_pixel.b = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.b)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.b)) * (src_y - src_y_floor))));
-                    new_pixel.a = if (q1.a != null and q2.a != null) @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_y - src_y_floor)))) else null;
+                    new_pixel.a = @as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.a.?)) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.a.?)) * (src_y - src_y_floor))));
                 }
 
                 data_copy[y * width + x].r = new_pixel.r;
@@ -154,6 +154,7 @@ pub const ImageCore = struct {
                 .r = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].r)),
                 .g = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].g)),
                 .b = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].b)),
+                .a = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].a)),
             };
         } else {
             return BicubicPixel{};
@@ -211,15 +212,15 @@ pub const ImageCore = struct {
                 } else if (new_pixel.b < 0) {
                     new_pixel.b = 0;
                 }
-                if (new_pixel.a != null and new_pixel.a.? > 255) {
+                if (new_pixel.a > 255) {
                     new_pixel.a = 255;
-                } else if (new_pixel.a != null and new_pixel.a.? < 0) {
+                } else if (new_pixel.a < 0) {
                     new_pixel.a = 0;
                 }
                 data_copy[y * width + x].r = @as(u8, @intFromFloat(new_pixel.r));
                 data_copy[y * width + x].g = @as(u8, @intFromFloat(new_pixel.g));
                 data_copy[y * width + x].b = @as(u8, @intFromFloat(new_pixel.b));
-                data_copy[y * width + x].a = if (new_pixel.a != null) @as(u8, @intFromFloat(new_pixel.a.?)) else null;
+                data_copy[y * width + x].a = @as(u8, @intFromFloat(new_pixel.a));
             }
         }
 
@@ -248,14 +249,14 @@ pub const ImageCore = struct {
                         r += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.r));
                         g += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.g));
                         b += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.b));
-                        a += if (curr_pixel.a != null) kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.a.?)) else 0.0;
+                        a += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.a));
                     }
                 }
 
                 data_copy[y * self.width + x].r = @as(u8, @intFromFloat(r));
                 data_copy[y * self.width + x].g = @as(u8, @intFromFloat(g));
                 data_copy[y * self.width + x].b = @as(u8, @intFromFloat(b));
-                data_copy[y * self.width + x].a = if (self.data[y * self.width + x].a != null) @as(u8, @intFromFloat(a)) else null;
+                data_copy[y * self.width + x].a = @as(u8, @intFromFloat(a));
             }
         }
         return data_copy;
@@ -354,15 +355,15 @@ pub const ImageCore = struct {
                 var r: u8 = pixel.r;
                 var g: u8 = pixel.g;
                 var b: u8 = pixel.b;
-                if (pixel.a) |alpha| {
+                if (pixel.a != 255) {
                     const max_pixel = 255.0;
                     const bkgd = 0;
-                    var rf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.r));
-                    var gf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.g));
-                    var bf: f32 = if (alpha == 0) 0 else (@as(f32, @floatFromInt(alpha)) / max_pixel) * @as(f32, @floatFromInt(pixel.b));
-                    rf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
-                    gf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
-                    bf += (1 - (@as(f32, @floatFromInt(alpha)) / max_pixel)) * bkgd;
+                    var rf: f32 = if (pixel.a == 0) 0 else (@as(f32, @floatFromInt(pixel.a)) / max_pixel) * @as(f32, @floatFromInt(pixel.r));
+                    var gf: f32 = if (pixel.a == 0) 0 else (@as(f32, @floatFromInt(pixel.a)) / max_pixel) * @as(f32, @floatFromInt(pixel.g));
+                    var bf: f32 = if (pixel.a == 0) 0 else (@as(f32, @floatFromInt(pixel.a)) / max_pixel) * @as(f32, @floatFromInt(pixel.b));
+                    rf += (1 - (@as(f32, @floatFromInt(pixel.a)) / max_pixel)) * bkgd;
+                    gf += (1 - (@as(f32, @floatFromInt(pixel.a)) / max_pixel)) * bkgd;
+                    bf += (1 - (@as(f32, @floatFromInt(pixel.a)) / max_pixel)) * bkgd;
                     r = @as(u8, @intFromFloat(rf));
                     g = @as(u8, @intFromFloat(gf));
                     b = @as(u8, @intFromFloat(bf));
@@ -396,7 +397,7 @@ pub const Pixel = struct {
     r: u8 = 0,
     g: u8 = 0,
     b: u8 = 0,
-    a: ?u8 = null,
+    a: u8 = 255,
     pub fn eql(self: *Pixel, other: Pixel) bool {
         return self.r == other.r and self.g == other.g and self.b == other.b;
     }

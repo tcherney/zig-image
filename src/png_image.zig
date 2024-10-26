@@ -675,6 +675,7 @@ pub const PNGImage = struct {
             while (pass < 7) : (pass += 1) {
                 var row: usize = StartingRow[pass];
                 previous_index = 0;
+                var current_scanline: []u8 = undefined;
                 while (row < self.height) : (row += RowIncrement[pass]) {
                     var col: usize = StartingCol[pass];
                     var bit_index: u3 = 7;
@@ -682,12 +683,15 @@ pub const PNGImage = struct {
                     //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                     buffer_index += 1;
                     scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
-                    const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
+                    const previous_scanline: ?[]u8 = if (previous_index > 0) current_scanline else null;
                     previous_index = buffer_index;
-                    self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
+                    current_scanline = ret.items[buffer_index .. scanline_width + buffer_index];
+                    std.log.debug("filtering {d}-{d} depth {d} bytes_per_pixel {d}\n", .{ buffer_index, scanline_width + buffer_index, self.bit_depth, num_bytes_per_pixel });
+                    self.filter_scanline(filter_type, current_scanline, previous_scanline, num_bytes_per_pixel);
                     while (col < self.width) : (col += ColIncrement[pass]) {
                         try self.add_filtered_pixel(ret, &buffer_index, &bit_index, ((row * self.width) + col), num_bytes_per_pixel);
                     }
+                    std.log.debug("row = {d}, col = {d}, rowxcol = {d}, len = {d}\n", .{ row, col, row * col, ret.items.len });
                 }
             }
         }
