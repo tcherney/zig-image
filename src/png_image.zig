@@ -457,11 +457,7 @@ pub const PNGImage = struct {
                 switch (self.bit_depth) {
                     1 => {
                         const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 0) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -472,11 +468,7 @@ pub const PNGImage = struct {
                     2 => {
                         const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 3.0)));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 1) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -487,11 +479,7 @@ pub const PNGImage = struct {
                     4 => {
                         const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 15.0)));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 3) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -501,20 +489,13 @@ pub const PNGImage = struct {
                     },
                     8 => {
                         const rgb: u8 = ret.items[buffer_index.*];
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = rgb,
-                            .g = rgb,
-                            .b = rgb,
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0))),
-                        };
+                        const gray = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0)));
+                        self.data.items[data_index] = utils.Pixel.init(gray, gray, gray, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -523,19 +504,11 @@ pub const PNGImage = struct {
             2 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = ret.items[buffer_index.*],
-                            .g = ret.items[buffer_index.* + 1],
-                            .b = ret.items[buffer_index.* + 2],
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(ret.items[buffer_index.*], ret.items[buffer_index.* + 1], ret.items[buffer_index.* + 2], null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(@as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -553,32 +526,23 @@ pub const PNGImage = struct {
             4 => {
                 switch (self.bit_depth) {
                     8 => {
-                        // const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]));
-                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        // const bkgd = max_pixel;
-                        // var rgb: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
-                        // rgb += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = ret.items[buffer_index.*],
-                            .g = ret.items[buffer_index.*],
-                            .b = ret.items[buffer_index.*],
-                            .a = ret.items[buffer_index.* + 1],
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(
+                            ret.items[buffer_index.*],
+                            ret.items[buffer_index.*],
+                            ret.items[buffer_index.*],
+                            ret.items[buffer_index.* + 1],
+                        );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
-                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        // const bkgd = max_pixel;
-                        // var rgb: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
-                        // rgb += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            .a = @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
+                        );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -587,46 +551,24 @@ pub const PNGImage = struct {
             6 => {
                 switch (self.bit_depth) {
                     8 => {
-                        // next 3 bytes are rgb followed by alpha
-                        //const alpha = @as(f32, @floatFromInt(ret.items[buffer_index.* + 3]));
-                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        // const bkgd = max_pixel;
-                        // //PNG_LOG.info("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
-                        // var r: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.*]))));
-                        // var g: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 1]))));
-                        // var b: u8 = if (alpha == 0) 0 else @as(u8, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt(ret.items[buffer_index.* + 2]))));
-                        // //PNG_LOG.info("more red {d} {d}\n", .{ r, @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
-                        // r += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        // g += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        // b += @as(u8, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = ret.items[buffer_index.*],
-                            .g = ret.items[buffer_index.* + 1],
-                            .b = ret.items[buffer_index.* + 2],
-                            .a = ret.items[buffer_index.* + 3],
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(
+                            ret.items[buffer_index.*],
+                            ret.items[buffer_index.* + 1],
+                            ret.items[buffer_index.* + 2],
+                            ret.items[buffer_index.* + 3],
+                        );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         //TODO figure out scuffed corner in 16 bit alpha images
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
-                        // const max_pixel = std.math.pow(f32, 2, @as(f32, @floatFromInt(self.bit_depth))) - 1;
-                        // const bkgd = max_pixel;
-                        // //PNG_LOG.info("alpha {d} r {d} g {d} b {d} max {d}\n", .{ alpha, ret.items[i], ret.items[i + 1], ret.items[i + 2], max_pixel });
-                        // var r: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1]))));
-                        // var g: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]))));
-                        // var b: u16 = if (alpha == 0) 0 else @as(u16, @intFromFloat((alpha / max_pixel) * @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5]))));
-                        // //PNG_LOG.info("more red {d} {d}\n", .{ r, @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd)) });
-                        // r += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        // g += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        // b += @as(u16, @intFromFloat((1 - (alpha / max_pixel)) * bkgd));
-                        self.data.items[data_index] = utils.Pixel{
-                            .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
-                            .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
-                            .a = @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
-                        };
+                        self.data.items[data_index] = utils.Pixel.init(
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
+                        );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -702,10 +644,7 @@ pub const PNGImage = struct {
             const data_copy = try self.image_core().grayscale();
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;
@@ -716,10 +655,7 @@ pub const PNGImage = struct {
             const data_copy = try self.image_core().reflection(axis);
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;

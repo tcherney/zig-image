@@ -143,6 +143,7 @@ const ColorComponent = struct {
     used_in_scan: bool = false,
 };
 
+//TODO vectorize
 fn Block(comptime T: type) type {
     return struct {
         y: [64]T = [_]T{0} ** 64,
@@ -612,12 +613,6 @@ pub const JPEGImage = struct {
             JPEG_LOG.info("Table ID: {d}\n", .{i});
             table.print();
         }
-        // if (self.data) |data| {
-        //     for (data.items) |item| {
-        //         JPEG_LOG.info("({d},{d},{d}) ", .{item.r});
-        //     }
-        //     JPEG_LOG.info("\n", .{});
-        // }
     }
     fn generate_huffman_codes(_: *JPEGImage, h_table: *HuffmanTable) void {
         var code: u32 = 0;
@@ -1167,11 +1162,12 @@ pub const JPEGImage = struct {
                 //JPEG_LOG.info("writing index {d}\n", .{block_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
                 //JPEG_LOG.info("pixel ({d}) ({d}) ({d})\n", .{ blocks[block_index].r[pixel_index], blocks[block_index].g[pixel_index], blocks[block_index].b[pixel_index] });
-                try self.data.append(utils.Pixel{
-                    .r = @truncate(@as(u32, @bitCast(self.blocks[block_index].r[pixel_index]))),
-                    .g = @truncate(@as(u32, @bitCast(self.blocks[block_index].g[pixel_index]))),
-                    .b = @truncate(@as(u32, @bitCast(self.blocks[block_index].b[pixel_index]))),
-                });
+                try self.data.append(utils.Pixel.init(
+                    @truncate(@as(u32, @bitCast(self.blocks[block_index].r[pixel_index]))),
+                    @truncate(@as(u32, @bitCast(self.blocks[block_index].g[pixel_index]))),
+                    @truncate(@as(u32, @bitCast(self.blocks[block_index].b[pixel_index]))),
+                    null,
+                ));
             }
             i += 1;
         }
@@ -1182,10 +1178,7 @@ pub const JPEGImage = struct {
             const data_copy = try self.image_core().grayscale();
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;
@@ -1197,10 +1190,7 @@ pub const JPEGImage = struct {
             const data_copy = try self.image_core().reflection(axis);
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;

@@ -92,10 +92,7 @@ pub const BMPImage = struct {
             const data_copy = try self.image_core().grayscale();
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;
@@ -106,10 +103,7 @@ pub const BMPImage = struct {
             const data_copy = try self.image_core().reflection(axis);
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
-                self.data.items[i].r = data_copy[i].r;
-                self.data.items[i].g = data_copy[i].g;
-                self.data.items[i].b = data_copy[i].b;
-                self.data.items[i].a = data_copy[i].a;
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;
@@ -140,27 +134,39 @@ pub const BMPImage = struct {
                 switch (self.dib_file_header.compression_method) {
                     .BI_RGB => {
                         if (self.dib_file_header.bpp == 24) {
-                            self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read(u8),
-                                .g = try self.file_data.read(u8),
-                                .r = try self.file_data.read(u8),
-                            };
+                            const b = try self.file_data.read(u8);
+                            const g = try self.file_data.read(u8);
+                            const r = try self.file_data.read(u8);
+                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                                r,
+                                g,
+                                b,
+                                null,
+                            );
                         }
                     },
                     .BI_BITFIELDS => {
                         if (self.dib_file_header.bpp == 24) {
-                            self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read(u8),
-                                .g = try self.file_data.read(u8),
-                                .r = try self.file_data.read(u8),
-                            };
+                            const b = try self.file_data.read(u8);
+                            const g = try self.file_data.read(u8);
+                            const r = try self.file_data.read(u8);
+                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                                r,
+                                g,
+                                b,
+                                null,
+                            );
                             _ = try self.file_data.read(u8);
                         } else if (self.dib_file_header.bpp == 32) {
-                            self.data.items[i * self.width + j] = utils.Pixel{
-                                .b = try self.file_data.read(u8),
-                                .g = try self.file_data.read(u8),
-                                .r = try self.file_data.read(u8),
-                            };
+                            const b = try self.file_data.read(u8);
+                            const g = try self.file_data.read(u8);
+                            const r = try self.file_data.read(u8);
+                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                                r,
+                                g,
+                                b,
+                                null,
+                            );
                             _ = try self.file_data.read(u8);
                         }
                     },
