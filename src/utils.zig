@@ -302,8 +302,19 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn rotate(self: *const Self) Error![]Pixel {
-        _ = try self.allocator.dupe(Pixel, self.data);
+    pub fn rotate(self: *const Self, degrees: f32) Error![]Pixel {
+        const rotate_mat = try Mat(3).rotate(degrees);
+        const Vec = Mat(3).Vec;
+        var vectors: []Vec = try self.allocator.alloc(Vec, self.data.len);
+        defer self.allocator.free(vectors);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                //TODO translate first
+                //TODO calculate new bounds and adjust points accordingly
+                //TODO take modified vectors and build new image swapping the color pixels around based on them
+                vectors[j * self.width + i] = rotate_mat.mul_v(.{ j, i });
+            }
+        }
     }
     pub fn shear(self: *const Self) Error![]Pixel {
         _ = try self.allocator.dupe(Pixel, self.data);
@@ -362,11 +373,197 @@ pub const ImageCore = struct {
 };
 
 pub fn timer_end() void {
-    std.log.info("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
+    std.log.warn("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
     timer.reset();
 }
 
 //TODO replace with @Vector4 and add matrix4 to do transformations with as first step in paralellizing with simd instructions
+//TODO represent matrix with rows made of vectors, may have to store normally and vectorize pre calculation to choose row or column (would need both for matrix mult)
+pub fn Mat(comptime S: comptime_int) type {
+    return struct {
+        data: [S * S]f32 = undefined,
+        size: usize = S,
+        pub const Self = @This();
+        pub const Vec = @Vector(S, f32);
+        pub const Error = error{
+            TransformationUndefined,
+            ArgError,
+        };
+        pub fn print(self: *const Self) void {
+            std.log.warn("{any}\n", .{self.data});
+            std.log.warn("rows\n", .{});
+            for (0..S) |i| {
+                const v: Vec = self.data[i * S .. i * S + S][0..S].*;
+                std.log.warn("{any}\n", .{v});
+            }
+            std.log.warn("cols\n", .{});
+            for (0..S) |i| {
+                var v: Vec = undefined;
+                for (0..S) |j| {
+                    v[j] = self.data[j * S + i];
+                }
+                std.log.warn("{any}\n", .{v});
+            }
+        }
+        pub fn scale(s: f32) Error!Self {
+            if (S != 3) return Error.TransformationUndefined;
+            return Self{ .data = .{
+                s, 0, 0,
+                0, s, 0,
+                0, 0, 1,
+            } };
+        }
+        pub fn rotate(degrees: f32) Error!Self {
+            if (S != 3) return Error.TransformationUndefined;
+            const rad = degrees * std.math.rad_per_deg;
+            return Self{ .data = .{
+                std.math.cos(rad), -std.math.sin(rad), 0,
+                std.math.sin(rad), std.math.cos(rad),  0,
+                0,                 0,                  1,
+            } };
+        }
+        pub fn shear(h: f32) Error!Self {
+            if (S != 3) return Error.TransformationUndefined;
+            return Self{ .data = .{
+                1, h, 0,
+                h, 1, 0,
+                0, 0, 1,
+            } };
+        }
+        pub fn translate(x: f32, y: f32) Error!Self {
+            if (S != 3) return Error.TransformationUndefined;
+            return Self{ .data = .{
+                1, 0, x,
+                0, 1, y,
+                0, 0, 1,
+            } };
+        }
+        pub fn identity() Error!Self {
+            if (S != 3) return Error.TransformationUndefined;
+            return Self{ .data = .{
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            } };
+        }
+        pub fn vectorize(args: anytype) Error!Vec {
+            const ArgsType = @TypeOf(args);
+            const args_type_info = @typeInfo(ArgsType);
+            if (args_type_info != .Struct) {
+                @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
+            }
+            if (args_type_info.Struct.fields.len != S - 1) {
+                return Error.ArgError;
+            }
+            var res: Vec = undefined;
+            inline for (0..args_type_info.Struct.fields.len) |i| {
+                res[i] = @field(args, args_type_info.Struct.fields[i].name);
+            }
+            res[S - 1] = 1;
+            std.log.warn("vectorized {any}\n", .{res});
+            return res;
+        }
+        pub fn mul_v(self: *const Self, v: Vec) Vec {
+            var res: Vec = undefined;
+            for (0..S) |i| {
+                const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
+                res[i] = @reduce(.Add, mat_r * v);
+            }
+            std.log.warn("matrix vector {any}\n", .{res});
+            return res;
+        }
+        pub fn mul(self: *const Self, other: Self) Self {
+            var res: Self = undefined;
+            for (0..S) |i| {
+                const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
+                for (0..S) |j| {
+                    var mat_c: Vec = undefined;
+                    for (0..S) |k| {
+                        mat_c[k] = other.data[k * S + i];
+                    }
+                    res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
+                }
+            }
+            std.log.warn("matrix matrix {any}\n", .{res.data});
+            return res;
+        }
+        pub fn naive_mul(self: *Self, other: Self) Self {
+            var res: Self = undefined;
+            for (0..S) |i| {
+                const mat_r: [S]f32 = self.data[i * S .. i * S + S][0..S].*;
+                for (0..S) |j| {
+                    var mat_c: [S]f32 = undefined;
+                    for (0..S) |k| {
+                        mat_c[k] = other.data[k * S + i];
+                    }
+                    res.data[i * S + j] = 0;
+                    for (0..S) |k| {
+                        res.data[i * S + j] += mat_r[k] * mat_c[k];
+                    }
+                }
+            }
+            std.log.warn("matrix matrix {any}\n", .{res.data});
+            return res;
+        }
+        pub fn naive_mul_v(self: *Self, v: [S]f32) [S]f32 {
+            var res: [S]f32 = undefined;
+            for (0..S) |i| {
+                const mat_r: [S]f32 = self.data[i * S .. i * S + S][0..S].*;
+                res[i] = 0;
+                for (0..S) |j| {
+                    res[i] += mat_r[j] * v[j];
+                }
+            }
+            std.log.warn("matrix vector {any}\n", .{res});
+            return res;
+        }
+    };
+}
+
+test "MATRIX" {
+    const size: comptime_int = 3;
+    const Matrix = Mat(size);
+    var m: Matrix = undefined;
+    for (0..size) |i| {
+        for (0..size) |j| {
+            m.data[i * size + j] = 2;
+        }
+    }
+    m.print();
+    var m2: Matrix = undefined;
+    for (0..size) |i| {
+        for (0..size) |j| {
+            m2.data[i * size + j] = 2;
+        }
+    }
+    m2.print();
+    var v: @Vector(size, f32) = undefined;
+    for (0..size) |i| {
+        v[i] = 2;
+    }
+    var v_a: [size]f32 = undefined;
+    for (0..size) |i| {
+        v_a[i] = 2;
+    }
+    try timer_start();
+    _ = m.mul_v(v);
+    timer_end();
+    try timer_start();
+    _ = m.naive_mul_v(v_a);
+    timer_end();
+    try timer_start();
+    _ = m.mul(m2);
+    timer_end();
+    try timer_start();
+    _ = m.naive_mul(m2);
+    timer_end();
+
+    const rotate = try Matrix.rotate(45);
+    _ = rotate.mul_v(.{ 5, 5, 1 });
+
+    _ = try Matrix.vectorize(.{ 2, 4 });
+}
+
 pub const Pixel = struct {
     v: vec4 = .{ 0, 0, 0, 255 },
     pub const vec4 = @Vector(4, u8);
