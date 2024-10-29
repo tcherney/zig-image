@@ -41,7 +41,7 @@ pub const ImageCore = struct {
     data: []Pixel,
     allocator: std.mem.Allocator,
     const Self = @This();
-    pub const Error = error{} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError;
+    pub const Error = error{} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || Mat(3).Error;
     const BicubicPixel = struct {
         r: f32 = 0,
         g: f32 = 0,
@@ -302,19 +302,56 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn rotate(self: *const Self, degrees: f32) Error![]Pixel {
-        const rotate_mat = try Mat(3).rotate(degrees);
+    pub fn rotate(self: *const Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
+        const radians: f32 = std.math.degreesToRadians(degrees);
+        const shear13 = try Mat(3).shear(0, -@tan(radians / 2));
+        shear13.print();
+        const shear2 = try Mat(3).shear(@sin(radians), 0);
+        shear2.print();
+        const rotate_mat = shear13.mul(shear2).mul(shear13);
+        rotate_mat.print();
         const Vec = Mat(3).Vec;
         var vectors: []Vec = try self.allocator.alloc(Vec, self.data.len);
         defer self.allocator.free(vectors);
+        var min_x: f32 = -@as(f32, @floatFromInt(self.width / 2));
+        var max_x: f32 = @as(f32, @floatFromInt(self.width / 2)) - 1;
+        var min_y: f32 = -@as(f32, @floatFromInt(self.height / 2));
+        var max_y: f32 = @as(f32, @floatFromInt(self.height / 2)) - 1;
+        var translate_mat = try Mat(3).translate(min_x, min_y);
         for (0..self.height) |i| {
             for (0..self.width) |j| {
-                //TODO translate first
-                //TODO calculate new bounds and adjust points accordingly
-                //TODO take modified vectors and build new image swapping the color pixels around based on them
-                vectors[j * self.width + i] = rotate_mat.mul_v(.{ j, i });
+                //vectors[i * self.width + j] = shear13.mul_v(shear2.mul_v(shear13.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) }))));
+                vectors[i * self.width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
+                min_x = @min(min_x, vectors[i * self.width + j][0]);
+                max_x = @max(max_x, vectors[i * self.width + j][0]);
+                min_y = @min(min_y, vectors[i * self.width + j][1]);
+                max_y = @max(max_y, vectors[i * self.width + j][1]);
             }
         }
+        //std.log.warn("pre translate {any}\n", .{vectors});
+        translate_mat = try Mat(3).translate(-min_x, -min_y);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                vectors[i * self.width + j] = translate_mat.mul_v(vectors[i * self.width + j]);
+            }
+        }
+        //std.log.warn("translated {any}\n", .{vectors});
+        const width = @as(u32, @intFromFloat(@ceil(max_x - min_x))) + 1;
+        const height = @as(u32, @intFromFloat(@ceil(max_y - min_y))) + 1;
+        var data_copy = try self.allocator.alloc(Pixel, width * height);
+        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
+        for (0..data_copy.len) |i| {
+            data_copy[i] = Pixel{};
+        }
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                //std.log.warn("x coord {any}", .{vectors[i * self.width + j][0]});
+                const x = @as(usize, @intFromFloat(@round(vectors[i * self.width + j][0])));
+                const y = @as(usize, @intFromFloat(@round(vectors[i * self.width + j][1])));
+                data_copy[y * width + x] = self.data[i * self.width + j];
+            }
+        }
+        return .{ .width = width, .height = height, .data = data_copy };
     }
     pub fn shear(self: *const Self) Error![]Pixel {
         _ = try self.allocator.dupe(Pixel, self.data);
@@ -391,17 +428,8 @@ pub fn Mat(comptime S: comptime_int) type {
         };
         pub fn print(self: *const Self) void {
             std.log.warn("{any}\n", .{self.data});
-            std.log.warn("rows\n", .{});
             for (0..S) |i| {
                 const v: Vec = self.data[i * S .. i * S + S][0..S].*;
-                std.log.warn("{any}\n", .{v});
-            }
-            std.log.warn("cols\n", .{});
-            for (0..S) |i| {
-                var v: Vec = undefined;
-                for (0..S) |j| {
-                    v[j] = self.data[j * S + i];
-                }
                 std.log.warn("{any}\n", .{v});
             }
         }
@@ -422,11 +450,11 @@ pub fn Mat(comptime S: comptime_int) type {
                 0,                 0,                  1,
             } };
         }
-        pub fn shear(h: f32) Error!Self {
+        pub fn shear(x: f32, y: f32) Error!Self {
             if (S != 3) return Error.TransformationUndefined;
             return Self{ .data = .{
-                1, h, 0,
-                h, 1, 0,
+                1, y, 0,
+                x, 1, 0,
                 0, 0, 1,
             } };
         }
@@ -460,7 +488,7 @@ pub fn Mat(comptime S: comptime_int) type {
                 res[i] = @field(args, args_type_info.Struct.fields[i].name);
             }
             res[S - 1] = 1;
-            std.log.warn("vectorized {any}\n", .{res});
+            //std.log.warn("vectorized {any}\n", .{res});
             return res;
         }
         pub fn mul_v(self: *const Self, v: Vec) Vec {
@@ -469,7 +497,7 @@ pub fn Mat(comptime S: comptime_int) type {
                 const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
                 res[i] = @reduce(.Add, mat_r * v);
             }
-            std.log.warn("matrix vector {any}\n", .{res});
+            //std.log.warn("matrix vector {any}\n", .{res});
             return res;
         }
         pub fn mul(self: *const Self, other: Self) Self {
@@ -479,7 +507,7 @@ pub fn Mat(comptime S: comptime_int) type {
                 for (0..S) |j| {
                     var mat_c: Vec = undefined;
                     for (0..S) |k| {
-                        mat_c[k] = other.data[k * S + i];
+                        mat_c[k] = other.data[k * S + j];
                     }
                     res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
                 }
@@ -487,34 +515,34 @@ pub fn Mat(comptime S: comptime_int) type {
             std.log.warn("matrix matrix {any}\n", .{res.data});
             return res;
         }
-        pub fn naive_mul(self: *Self, other: Self) Self {
+        pub fn naive_mul(self: *const Self, other: Self) Self {
             var res: Self = undefined;
             for (0..S) |i| {
-                const mat_r: [S]f32 = self.data[i * S .. i * S + S][0..S].*;
                 for (0..S) |j| {
-                    var mat_c: [S]f32 = undefined;
-                    for (0..S) |k| {
-                        mat_c[k] = other.data[k * S + i];
-                    }
                     res.data[i * S + j] = 0;
+                    std.debug.print("C{d}{d} = ", .{ i, j });
                     for (0..S) |k| {
-                        res.data[i * S + j] += mat_r[k] * mat_c[k];
+                        std.debug.print("{d} x {d}", .{ self.data[i * S + k], other.data[k * S + j] });
+                        res.data[i * S + j] += self.data[i * S + k] * other.data[k * S + j];
+                        if (k < S - 1) {
+                            std.debug.print(" + ", .{});
+                        }
                     }
+                    std.debug.print(" = {d}\n", .{res.data[i * S + j]});
                 }
             }
             std.log.warn("matrix matrix {any}\n", .{res.data});
             return res;
         }
-        pub fn naive_mul_v(self: *Self, v: [S]f32) [S]f32 {
+        pub fn naive_mul_v(self: *const Self, v: [S]f32) [S]f32 {
             var res: [S]f32 = undefined;
             for (0..S) |i| {
-                const mat_r: [S]f32 = self.data[i * S .. i * S + S][0..S].*;
                 res[i] = 0;
                 for (0..S) |j| {
-                    res[i] += mat_r[j] * v[j];
+                    res[i] += self.data[i * S + j] * v[j];
                 }
             }
-            std.log.warn("matrix vector {any}\n", .{res});
+            //std.log.warn("matrix vector {any}\n", .{res});
             return res;
         }
     };

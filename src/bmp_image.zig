@@ -109,6 +109,21 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
+    pub fn rotate(self: *BMPImage, degrees: f32) Error!void {
+        if (self.loaded) {
+            const data = try self.image_core().rotate(degrees);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
     pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
@@ -322,6 +337,18 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "ROTATE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.rotate(-45);
+    try image.write_BMP("basic1_rotate_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
