@@ -111,7 +111,8 @@ pub const BMPImage = struct {
     }
     pub fn rotate(self: *BMPImage, degrees: f32) Error!void {
         if (self.loaded) {
-            const data = try self.image_core().rotate(degrees);
+            var core = self.image_core();
+            const data = try core.rotate_no_mat(degrees);
             const data_copy = data.data;
             self.width = data.width;
             self.height = data.height;
@@ -347,7 +348,7 @@ test "ROTATE" {
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
-    try image.rotate(-45);
+    try image.rotate(45);
     try image.write_BMP("basic1_rotate_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
