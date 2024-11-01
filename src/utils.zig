@@ -625,43 +625,26 @@ pub const ImageCore = struct {
         var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
         defer self.allocator.free(vectors);
         std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
-        min_x = -@as(f32, @floatFromInt((self.width - 1) / 2));
-        max_x = @as(f32, @floatFromInt(self.width / 2)) - 1;
-        min_y = -@as(f32, @floatFromInt((self.height - 1) / 2));
-        max_y = @as(f32, @floatFromInt(self.height / 2)) - 1;
-        const old_min_x = min_x;
-        const old_min_y = min_y;
         var translate_mat = try Mat(3).translate(-@as(f32, @floatFromInt((width - 1) / 2)), -@as(f32, @floatFromInt((height - 1) / 2)));
         const rotate_mat = try Mat(3).rotate(-degrees);
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
-                if (i == 0 and j == 0) {
-                    min_x = vectors[0][0];
-                    max_x = vectors[0][0];
-                    min_y = vectors[0][1];
-                    max_y = vectors[0][1];
-                }
-                min_x = @min(min_x, vectors[i * width + j][0]);
-                max_x = @max(max_x, vectors[i * width + j][0]);
-                min_y = @min(min_y, vectors[i * width + j][1]);
-                max_y = @max(max_y, vectors[i * width + j][1]);
             }
         }
-        //translate_mat = try Mat(3).translate(-old_min_x + (min_x - old_min_x) / 2, -old_min_y + (min_y - old_min_y) / 2);
-        translate_mat = try Mat(3).translate(-old_min_x, -old_min_y);
+        translate_mat = try Mat(3).translate(@as(f32, @floatFromInt((self.width - 1) / 2)), @as(f32, @floatFromInt((self.height - 1) / 2)));
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = translate_mat.mul_v(vectors[i * width + j]);
             }
         }
-        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
         for (0..height) |i| {
             for (0..width) |j| {
                 //std.log.warn("x coord {any}", .{vectors[i * self.width + j][0]});
                 if (vectors[i * width + j][0] < 0 or vectors[i * width + j][1] < 0) continue;
                 const x = @as(usize, @intFromFloat(@floor(vectors[i * width + j][0])));
                 const y = @as(usize, @intFromFloat(@floor(vectors[i * width + j][1])));
+                //TODO add area mapping sampling the 4 pixels that could overlap
                 const indx = y * self.width + x;
                 if (x >= self.width or y >= self.height) continue;
                 if (indx < self.data.len and indx >= 0) data_copy[i * width + j] = self.data[y * self.width + x];

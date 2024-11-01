@@ -348,7 +348,7 @@ test "ROTATE" {
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
-    try image.rotate(15);
+    try image.rotate(45);
     try image.write_BMP("basic1_rotate_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
