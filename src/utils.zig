@@ -457,7 +457,7 @@ pub const ImageCore = struct {
                 const y_per = vectors[i * self.width + j][1] - @floor(vectors[i * self.width + j][1]);
                 var indx = min_y_overlap * width + min_x_overlap;
                 if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((1 - x_per) + (1 - y_per)) / 2;
+                    const scale = ((1 - x_per) * (1 - y_per));
                     var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
                     if (scaled_pixel > 255) scaled_pixel = 255;
                     data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
@@ -470,7 +470,7 @@ pub const ImageCore = struct {
                 }
                 indx = min_y_overlap * width + max_x_overlap;
                 if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((x_per) + (1 - y_per)) / 2;
+                    const scale = ((x_per) * (1 - y_per));
                     var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
                     if (scaled_pixel > 255) scaled_pixel = 255;
                     data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
@@ -483,7 +483,7 @@ pub const ImageCore = struct {
                 }
                 indx = max_y_overlap * width + min_x_overlap;
                 if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((1 - x_per) + (y_per)) / 2;
+                    const scale = ((1 - x_per) * (y_per));
                     var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
                     if (scaled_pixel > 255) scaled_pixel = 255;
                     data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
@@ -496,7 +496,7 @@ pub const ImageCore = struct {
                 }
                 indx = max_y_overlap * width + max_x_overlap;
                 if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((x_per) + (y_per)) / 2;
+                    const scale = ((x_per) * (y_per));
                     var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
                     if (scaled_pixel > 255) scaled_pixel = 255;
                     data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
@@ -509,83 +509,6 @@ pub const ImageCore = struct {
                 }
             }
         }
-
-        // for (0..height) |i| {
-        //     for (0..width) |j| {
-        //         if (data_copy[i * width + j].get_r() < 50 and data_copy[i * width + j].get_g() < 50 and data_copy[i * width + j].get_b() < 50) {
-        //             var num_pix: u32 = 0;
-        //             var r: u32 = data_copy[i * width + j].get_r();
-        //             var g: u32 = data_copy[i * width + j].get_g();
-        //             var b: u32 = data_copy[i * width + j].get_b();
-        //             var a: u32 = data_copy[i * width + j].get_a();
-        //             if (j >= 1) {
-        //                 r += data_copy[i * width + j - 1].get_r();
-        //                 g += data_copy[i * width + j - 1].get_g();
-        //                 b += data_copy[i * width + j - 1].get_b();
-        //                 a += data_copy[i * width + j - 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (j + 1 < width) {
-        //                 r += data_copy[i * width + j + 1].get_r();
-        //                 g += data_copy[i * width + j + 1].get_g();
-        //                 b += data_copy[i * width + j + 1].get_b();
-        //                 a += data_copy[i * width + j + 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (i >= 1) {
-        //                 r += data_copy[(i - 1) * width + j].get_r();
-        //                 g += data_copy[(i - 1) * width + j].get_g();
-        //                 b += data_copy[(i - 1) * width + j].get_b();
-        //                 a += data_copy[(i - 1) * width + j].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (i + 1 < height) {
-        //                 r += data_copy[(i + 1) * width + j].get_r();
-        //                 g += data_copy[(i + 1) * width + j].get_g();
-        //                 b += data_copy[(i + 1) * width + j].get_b();
-        //                 a += data_copy[(i + 1) * width + j].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (j >= 1 and i + 1 < height) {
-        //                 r += data_copy[(i + 1) * width + j - 1].get_r();
-        //                 g += data_copy[(i + 1) * width + j - 1].get_g();
-        //                 b += data_copy[(i + 1) * width + j - 1].get_b();
-        //                 a += data_copy[(i + 1) * width + j - 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (j + 1 < width and i + 1 < height) {
-        //                 r += data_copy[(i + 1) * width + j + 1].get_r();
-        //                 g += data_copy[(i + 1) * width + j + 1].get_g();
-        //                 b += data_copy[(i + 1) * width + j + 1].get_b();
-        //                 a += data_copy[(i + 1) * width + j + 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (i >= 1 and j >= 1) {
-        //                 r += data_copy[(i - 1) * width + j - 1].get_r();
-        //                 g += data_copy[(i - 1) * width + j - 1].get_g();
-        //                 b += data_copy[(i - 1) * width + j - 1].get_b();
-        //                 a += data_copy[(i - 1) * width + j - 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             if (i >= 1 and j + 1 < width) {
-        //                 r += data_copy[(i - 1) * width + j + 1].get_r();
-        //                 g += data_copy[(i - 1) * width + j + 1].get_g();
-        //                 b += data_copy[(i - 1) * width + j + 1].get_b();
-        //                 a += data_copy[(i - 1) * width + j + 1].get_a();
-        //                 num_pix += 1;
-        //             }
-        //             r /= num_pix;
-        //             g /= num_pix;
-        //             b /= num_pix;
-        //             a /= num_pix;
-        //             data_copy[i * width + j].set_r(@as(u8, @truncate(r)));
-        //             data_copy[i * width + j].set_g(@as(u8, @truncate(g)));
-        //             data_copy[i * width + j].set_b(@as(u8, @truncate(b)));
-        //             data_copy[i * width + j].set_a(@as(u8, @truncate(a)));
-        //             std.log.warn("{d} new color value {d},{d},{d}, {d},{d},{d}\n", .{ num_pix, r, g, b, data_copy[i * width + j].get_r(), data_copy[i * width + j].get_g(), data_copy[i * width + j].get_b() });
-        //         }
-        //     }
-        // }
 
         return .{ .width = width, .height = height, .data = data_copy };
     }
@@ -627,6 +550,8 @@ pub const ImageCore = struct {
             min_y = @min(min_y, points[i].y);
             max_y = @max(max_y, points[i].y);
         }
+        const raw_width = max_x - min_x;
+        const raw_height = max_y - min_y;
         const width = @as(u32, @intFromFloat(@ceil(max_x - min_x)));
         const height = @as(u32, @intFromFloat(@ceil(max_y - min_y)));
         var data_copy = try self.allocator.alloc(Pixel, width * height);
@@ -634,10 +559,10 @@ pub const ImageCore = struct {
             data_copy[i] = Pixel{};
         }
         std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
-        const cos_angle = std.math.cos(-radians);
-        const sin_angle = std.math.sin(-radians);
-        const center_x = (@as(f32, @floatFromInt(self.width)) - 1) / 2;
-        const center_y = (@as(f32, @floatFromInt(self.height)) - 1) / 2;
+        const cos_angle: f32 = std.math.cos(-radians);
+        const sin_angle: f32 = std.math.sin(-radians);
+        const center_x: f32 = (raw_width - 1) / 2.0;
+        const center_y: f32 = (raw_height - 1) / 2.0;
         for (0..height) |i| {
             for (0..width) |j| {
                 const dx: f32 = @as(f32, @floatFromInt(j)) - center_x;
@@ -691,8 +616,8 @@ pub const ImageCore = struct {
             min_y = @min(min_y, points[i].y);
             max_y = @max(max_y, points[i].y);
         }
-        const width = @as(u32, @intFromFloat(@ceil(max_x - min_x))) + 1;
-        const height = @as(u32, @intFromFloat(@ceil(max_y - min_y))) + 1;
+        const width = @as(u32, @intFromFloat(@round(max_x - min_x)));
+        const height = @as(u32, @intFromFloat(@round(max_y - min_y)));
         var data_copy = try self.allocator.alloc(Pixel, width * height);
         for (0..data_copy.len) |i| {
             data_copy[i] = Pixel{};
@@ -700,18 +625,23 @@ pub const ImageCore = struct {
         var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
         defer self.allocator.free(vectors);
         std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
-        min_x = -@as(f32, @floatFromInt(width / 2));
-        max_x = @as(f32, @floatFromInt(width / 2)) - 1;
-        min_y = -@as(f32, @floatFromInt(height / 2));
-        max_y = @as(f32, @floatFromInt(height / 2)) - 1;
-        const old_min_x = min_x - 1;
-        const old_min_y = min_y - 1;
-        var translate_mat = try Mat(3).translate(old_min_x, old_min_y);
+        min_x = -@as(f32, @floatFromInt((self.width - 1) / 2));
+        max_x = @as(f32, @floatFromInt(self.width / 2)) - 1;
+        min_y = -@as(f32, @floatFromInt((self.height - 1) / 2));
+        max_y = @as(f32, @floatFromInt(self.height / 2)) - 1;
+        const old_min_x = min_x;
+        const old_min_y = min_y;
+        var translate_mat = try Mat(3).translate(-@as(f32, @floatFromInt((width - 1) / 2)), -@as(f32, @floatFromInt((height - 1) / 2)));
         const rotate_mat = try Mat(3).rotate(-degrees);
-        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
+                if (i == 0 and j == 0) {
+                    min_x = vectors[0][0];
+                    max_x = vectors[0][0];
+                    min_y = vectors[0][1];
+                    max_y = vectors[0][1];
+                }
                 min_x = @min(min_x, vectors[i * width + j][0]);
                 max_x = @max(max_x, vectors[i * width + j][0]);
                 min_y = @min(min_y, vectors[i * width + j][1]);
@@ -719,7 +649,7 @@ pub const ImageCore = struct {
             }
         }
         //translate_mat = try Mat(3).translate(-old_min_x + (min_x - old_min_x) / 2, -old_min_y + (min_y - old_min_y) / 2);
-        translate_mat = try Mat(3).translate(-min_x + (min_x - old_min_y), -min_y + (min_y - old_min_x));
+        translate_mat = try Mat(3).translate(-old_min_x, -old_min_y);
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = translate_mat.mul_v(vectors[i * width + j]);
@@ -733,6 +663,7 @@ pub const ImageCore = struct {
                 const x = @as(usize, @intFromFloat(@floor(vectors[i * width + j][0])));
                 const y = @as(usize, @intFromFloat(@floor(vectors[i * width + j][1])));
                 const indx = y * self.width + x;
+                if (x >= self.width or y >= self.height) continue;
                 if (indx < self.data.len and indx >= 0) data_copy[i * width + j] = self.data[y * self.width + x];
             }
         }
