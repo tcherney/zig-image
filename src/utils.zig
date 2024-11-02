@@ -302,7 +302,7 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    pub fn rotate_slow(self: *Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
+    fn rotate_slow(self: *Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
         const scale_factor = 4;
         var scaled_width = self.width * scale_factor;
         var scaled_height = self.height * scale_factor;
@@ -398,186 +398,6 @@ pub const ImageCore = struct {
         return @sqrt((a_x - b_x) * (a_x - b_x) + (a_y - b_y) * (a_y - b_y));
     }
 
-    pub fn rotate_inter(self: *Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
-        const radians: f32 = std.math.degreesToRadians(degrees);
-        const shear13 = try Mat(3).shear(0, -@tan(radians / 2));
-        shear13.print();
-        const shear2 = try Mat(3).shear(@sin(radians), 0);
-        shear2.print();
-        const rotate_mat = shear13.mul(shear2).mul(shear13);
-        rotate_mat.print();
-        const Vec = Mat(3).Vec;
-        var vectors: []Vec = try self.allocator.alloc(Vec, self.data.len);
-        defer self.allocator.free(vectors);
-        var min_x: f32 = -@as(f32, @floatFromInt(self.width / 2));
-        var max_x: f32 = @as(f32, @floatFromInt(self.width / 2)) - 1;
-        var min_y: f32 = -@as(f32, @floatFromInt(self.height / 2));
-        var max_y: f32 = @as(f32, @floatFromInt(self.height / 2)) - 1;
-        var translate_mat = try Mat(3).translate(min_x, min_y);
-        for (0..self.height) |i| {
-            for (0..self.width) |j| {
-                //vectors[i * self.width + j] = shear13.mul_v(shear2.mul_v(shear13.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) }))));
-                vectors[i * self.width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
-                if (i == 0 and j == 0) {
-                    min_x = vectors[0][0];
-                    max_x = vectors[0][0];
-                    min_y = vectors[0][1];
-                    max_y = vectors[0][1];
-                } else {
-                    min_x = @min(min_x, vectors[i * self.width + j][0]);
-                    max_x = @max(max_x, vectors[i * self.width + j][0]);
-                    min_y = @min(min_y, vectors[i * self.width + j][1]);
-                    max_y = @max(max_y, vectors[i * self.width + j][1]);
-                }
-            }
-        }
-        //std.log.warn("pre translate {any}\n", .{vectors});
-        translate_mat = try Mat(3).translate(-min_x, -min_y);
-        for (0..self.height) |i| {
-            for (0..self.width) |j| {
-                vectors[i * self.width + j] = translate_mat.mul_v(vectors[i * self.width + j]);
-            }
-        }
-        //std.log.warn("translated {any}\n", .{vectors});
-        const width = @as(u32, @intFromFloat(@ceil(max_x - min_x)));
-        const height = @as(u32, @intFromFloat(@ceil(max_y - min_y)));
-        var data_copy = try self.allocator.alloc(Pixel, width * height);
-        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
-        for (0..data_copy.len) |i| {
-            data_copy[i] = Pixel{};
-        }
-        for (0..self.height) |i| {
-            for (0..self.width) |j| {
-                //std.log.warn("x coord {any}", .{vectors[i * self.width + j][0]});
-                const min_x_overlap = @as(usize, @intFromFloat(@floor(vectors[i * self.width + j][0])));
-                const min_y_overlap = @as(usize, @intFromFloat(@floor(vectors[i * self.width + j][1])));
-                const max_x_overlap = @as(usize, @intFromFloat(@ceil(vectors[i * self.width + j][0])));
-                const max_y_overlap = @as(usize, @intFromFloat(@ceil(vectors[i * self.width + j][1])));
-                const x_per = vectors[i * self.width + j][0] - @floor(vectors[i * self.width + j][0]);
-                const y_per = vectors[i * self.width + j][1] - @floor(vectors[i * self.width + j][1]);
-                var indx = min_y_overlap * width + min_x_overlap;
-                if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((1 - x_per) * (1 - y_per));
-                    var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_g())) * scale)) + data_copy[indx].get_g();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_g(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_b())) * scale)) + data_copy[indx].get_b();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_b(@as(u8, @intCast(scaled_pixel)));
-                }
-                indx = min_y_overlap * width + max_x_overlap;
-                if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((x_per) * (1 - y_per));
-                    var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_g())) * scale)) + data_copy[indx].get_g();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_g(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_b())) * scale)) + data_copy[indx].get_b();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_b(@as(u8, @intCast(scaled_pixel)));
-                }
-                indx = max_y_overlap * width + min_x_overlap;
-                if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((1 - x_per) * (y_per));
-                    var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_g())) * scale)) + data_copy[indx].get_g();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_g(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_b())) * scale)) + data_copy[indx].get_b();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_b(@as(u8, @intCast(scaled_pixel)));
-                }
-                indx = max_y_overlap * width + max_x_overlap;
-                if (indx < data_copy.len and indx >= 0) {
-                    const scale = ((x_per) * (y_per));
-                    var scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_r())) * scale)) + data_copy[indx].get_r();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_r(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_g())) * scale)) + data_copy[indx].get_g();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_g(@as(u8, @intCast(scaled_pixel)));
-                    scaled_pixel = @as(u16, @intFromFloat(@as(f32, @floatFromInt(self.data[i * self.width + j].get_b())) * scale)) + data_copy[indx].get_b();
-                    if (scaled_pixel > 255) scaled_pixel = 255;
-                    data_copy[indx].set_b(@as(u8, @intCast(scaled_pixel)));
-                }
-            }
-        }
-
-        return .{ .width = width, .height = height, .data = data_copy };
-    }
-    pub fn rotate_no_mat(self: *const Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
-        const radians: f32 = std.math.degreesToRadians(degrees);
-        var x_1 = -@as(f32, @floatFromInt(self.width / 2));
-        var y_1 = -@as(f32, @floatFromInt(self.height / 2));
-        var points: [4]struct { x: f32, y: f32 } = undefined;
-        points[0] = .{
-            .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
-            .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
-        };
-        x_1 = -@as(f32, @floatFromInt(self.width / 2));
-        y_1 = @as(f32, @floatFromInt(self.height / 2));
-        points[1] = .{
-            .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
-            .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
-        };
-        x_1 = @as(f32, @floatFromInt(self.width / 2));
-        y_1 = @as(f32, @floatFromInt(self.height / 2));
-        points[2] = .{
-            .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
-            .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
-        };
-        x_1 = @as(f32, @floatFromInt(self.width / 2));
-        y_1 = -@as(f32, @floatFromInt(self.height / 2));
-        points[3] = .{
-            .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
-            .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
-        };
-        var min_x: f32 = points[0].x;
-        var max_x: f32 = points[0].x;
-        var min_y: f32 = points[0].y;
-        var max_y: f32 = points[0].y;
-        for (1..points.len) |i| {
-            std.log.warn("rotated point {any}\n", .{points[i]});
-            min_x = @min(min_x, points[i].x);
-            max_x = @max(max_x, points[i].x);
-            min_y = @min(min_y, points[i].y);
-            max_y = @max(max_y, points[i].y);
-        }
-        const raw_width = max_x - min_x;
-        const raw_height = max_y - min_y;
-        const width = @as(u32, @intFromFloat(@ceil(max_x - min_x)));
-        const height = @as(u32, @intFromFloat(@ceil(max_y - min_y)));
-        var data_copy = try self.allocator.alloc(Pixel, width * height);
-        for (0..data_copy.len) |i| {
-            data_copy[i] = Pixel{};
-        }
-        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
-        const cos_angle: f32 = std.math.cos(-radians);
-        const sin_angle: f32 = std.math.sin(-radians);
-        const center_x: f32 = (raw_width - 1) / 2.0;
-        const center_y: f32 = (raw_height - 1) / 2.0;
-        for (0..height) |i| {
-            for (0..width) |j| {
-                const dx: f32 = @as(f32, @floatFromInt(j)) - center_x;
-                const dy: f32 = @as(f32, @floatFromInt(i)) - center_y;
-                const float_x = @round(cos_angle * dx - sin_angle * dy + center_x);
-                const float_y = @round(sin_angle * dx + cos_angle * dy + center_y);
-                if (float_x < 0 or float_y < 0) continue;
-                const x = @as(usize, @intFromFloat(float_x));
-                const y = @as(usize, @intFromFloat(float_y));
-                const indx = y * self.width + x;
-                if (indx < self.data.len and indx >= 0) data_copy[i * width + j] = self.data[y * self.width + x];
-            }
-        }
-        return .{ .width = width, .height = height, .data = data_copy };
-    }
     pub fn rotate(self: *const Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
         const radians: f32 = std.math.degreesToRadians(degrees);
         var x_1 = -@as(f32, @floatFromInt(self.width / 2));
@@ -640,14 +460,75 @@ pub const ImageCore = struct {
         }
         for (0..height) |i| {
             for (0..width) |j| {
-                //std.log.warn("x coord {any}", .{vectors[i * self.width + j][0]});
                 if (vectors[i * width + j][0] < 0 or vectors[i * width + j][1] < 0) continue;
-                const x = @as(usize, @intFromFloat(@floor(vectors[i * width + j][0])));
-                const y = @as(usize, @intFromFloat(@floor(vectors[i * width + j][1])));
-                //TODO add area mapping sampling the 4 pixels that could overlap
-                const indx = y * self.width + x;
-                if (x >= self.width or y >= self.height) continue;
-                if (indx < self.data.len and indx >= 0) data_copy[i * width + j] = self.data[y * self.width + x];
+                const floored_x = @floor(vectors[i * width + j][0]);
+                const floored_y = @floor(vectors[i * width + j][1]);
+                const ceil_x = @ceil(vectors[i * width + j][0]);
+                const ceil_y = @ceil(vectors[i * width + j][1]);
+                var min_x_overlap: usize = undefined;
+                var min_y_overlap: usize = undefined;
+                var max_x_overlap: usize = undefined;
+                var max_y_overlap: usize = undefined;
+                if (floored_x >= 0) min_x_overlap = @as(usize, @intFromFloat(floored_x));
+                if (floored_y >= 0) min_y_overlap = @as(usize, @intFromFloat(floored_y));
+                if (ceil_x >= 0) max_x_overlap = @as(usize, @intFromFloat(ceil_x));
+                if (ceil_y >= 0) max_y_overlap = @as(usize, @intFromFloat(ceil_y));
+                const x_per = vectors[i * width + j][0] - @floor(vectors[i * width + j][0]);
+                const y_per = vectors[i * width + j][1] - @floor(vectors[i * width + j][1]);
+
+                var average_pixel: struct { r: f32, g: f32, b: f32, a: f32 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+                var weight: f32 = 0;
+                var indx: usize = 0;
+                if (floored_x >= 0 and floored_y >= 0) {
+                    indx = min_y_overlap * self.width + min_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and min_x_overlap < self.width) {
+                        const scale = ((1 - x_per) * (1 - y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (ceil_x >= 0 and floored_y >= 0) {
+                    indx = min_y_overlap * self.width + max_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and max_x_overlap < self.width) {
+                        const scale = ((x_per) * (1 - y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (floored_x >= 0 and ceil_y >= 0) {
+                    indx = max_y_overlap * self.width + min_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and min_x_overlap < self.width) {
+                        const scale = ((1 - x_per) * (y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (ceil_y >= 0 and ceil_x >= 0) {
+                    indx = max_y_overlap * self.width + max_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and max_x_overlap < self.width) {
+                        const scale = ((x_per) * (y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (weight != 0) {
+                    data_copy[i * width + j].set_r(@as(u8, @intFromFloat(average_pixel.r / weight)));
+                    data_copy[i * width + j].set_g(@as(u8, @intFromFloat(average_pixel.g / weight)));
+                    data_copy[i * width + j].set_b(@as(u8, @intFromFloat(average_pixel.b / weight)));
+                    data_copy[i * width + j].set_a(@as(u8, @intFromFloat(average_pixel.a / weight)));
+                }
             }
         }
         return .{ .width = width, .height = height, .data = data_copy };

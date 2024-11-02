@@ -337,7 +337,7 @@ test "CAT" {
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
-    try image.write_BMP("os.bmp");
+    try image.write_BMP("test_output/os.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -349,7 +349,7 @@ test "ROTATE" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.rotate(45);
-    try image.write_BMP("basic1_rotate_bmp.bmp");
+    try image.write_BMP("test_output/cat_rotate_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -361,7 +361,7 @@ test "CAT_REFLECT_X" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.reflection(.x);
-    try image.write_BMP("cat_reflectx_bmp.bmp");
+    try image.write_BMP("test_output/cat_reflectx_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -373,7 +373,7 @@ test "CAT_REFLECT_Y" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.reflection(.y);
-    try image.write_BMP("cat_reflecty_bmp.bmp");
+    try image.write_BMP("test_output/cat_reflecty_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -385,7 +385,7 @@ test "CAT_REFLECT_XY" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.reflection(.xy);
-    try image.write_BMP("cat_reflectxy_bmp.bmp");
+    try image.write_BMP("test_output/cat_reflectxy_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -397,7 +397,7 @@ test "V3" {
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/basic0.bmp", allocator);
-    try image.write_BMP("v3.bmp");
+    try image.write_BMP("test_output/v3.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
@@ -409,7 +409,7 @@ test "V5" {
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/basic1.bmp", allocator);
-    try image.write_BMP("v5.bmp");
+    try image.write_BMP("test_output/v5.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});

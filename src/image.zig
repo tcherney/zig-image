@@ -25,7 +25,7 @@ test "JPEG" {
     try image.load("tests/jpeg/cat.jpg", allocator);
     try image.convert_grayscale();
     image.get(5, 5).set_r(255);
-    try image.image_core().write_BMP("cat.bmp");
+    try image.image_core().write_BMP("test_output/cat.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.log.warn("Leaked!\n", .{});
@@ -39,7 +39,7 @@ test "PNG" {
     try image.load("tests/png/shield.png", allocator);
     try image.convert_grayscale();
     image.get(5, 5).set_r(255);
-    try image.image_core().write_BMP("shield.bmp");
+    try image.image_core().write_BMP("test_output/shield.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.log.warn("Leaked!\n", .{});
@@ -53,7 +53,7 @@ test "BMP" {
     try image.load("tests/bmp/parrot.bmp", allocator);
     try image.convert_grayscale();
     image.get(5, 5).set_r(255);
-    try image.image_core().write_BMP("parrot2.bmp");
+    try image.image_core().write_BMP("test_output/parrot2.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.log.warn("Leaked!\n", .{});

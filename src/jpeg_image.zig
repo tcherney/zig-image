@@ -1197,6 +1197,23 @@ pub const JPEGImage = struct {
         }
     }
 
+    pub fn rotate(self: *JPEGImage, degrees: f32) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            const data = try core.rotate(degrees);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn image_core(self: *JPEGImage) utils.ImageCore {
         return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
@@ -1227,10 +1244,23 @@ test "CAT" {
     var image = JPEGImage{};
     try image.load("tests/jpeg/cat.jpg", allocator);
     try image.convert_grayscale();
-    try image.write_BMP("cat.bmp");
+    try image.write_BMP("test_output/cat.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
+    }
+}
+
+test "ROTATE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load("tests/jpeg/cat.jpg", allocator);
+    try image.rotate(45);
+    try image.write_BMP("test_output/cat_rotate_jpg.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        JPEG_LOG.warn("Leaked!\n", .{});
     }
 }
 
@@ -1240,7 +1270,7 @@ test "CAT_REFLECT_X" {
     var image = JPEGImage{};
     try image.load("tests/jpeg/cat.jpg", allocator);
     try image.reflection(.x);
-    try image.write_BMP("cat_reflectx_jpg.bmp");
+    try image.write_BMP("test_output/cat_reflectx_jpg.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
@@ -1253,7 +1283,7 @@ test "CAT_REFLECT_Y" {
     var image = JPEGImage{};
     try image.load("tests/jpeg/cat.jpg", allocator);
     try image.reflection(.y);
-    try image.write_BMP("cat_reflecty_jpg.bmp");
+    try image.write_BMP("test_output/cat_reflecty_jpg.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
@@ -1266,7 +1296,7 @@ test "CAT_REFLECT_XY" {
     var image = JPEGImage{};
     try image.load("tests/jpeg/cat.jpg", allocator);
     try image.reflection(.xy);
-    try image.write_BMP("cat_reflectxy_jpg.bmp");
+    try image.write_BMP("test_output/cat_reflectxy_jpg.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
@@ -1278,7 +1308,7 @@ test "GORILLA" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/gorilla.jpg", allocator);
-    try image.write_BMP("gorilla.bmp");
+    try image.write_BMP("test_output/gorilla.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1290,7 +1320,7 @@ test "FISH2_1V" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/sub/goldfish_2to1V.jpg", allocator);
-    try image.write_BMP("goldfish_2to1V.bmp");
+    try image.write_BMP("test_output/goldfish_2to1V.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1302,7 +1332,7 @@ test "FISH2_1H" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/sub/goldfish_2to1H.jpg", allocator);
-    try image.write_BMP("goldfish_2to1H.bmp");
+    try image.write_BMP("test_output/goldfish_2to1H.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1314,7 +1344,7 @@ test "FISH2_1" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/sub/goldfish_2to1.jpg", allocator);
-    try image.write_BMP("goldfish_2to1.bmp");
+    try image.write_BMP("test_output/goldfish_2to1.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1326,7 +1356,7 @@ test "test" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/test.jpg", allocator);
-    try image.write_BMP("test.bmp");
+    try image.write_BMP("test_output/test.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1338,7 +1368,7 @@ test "PARROT" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/prog/parrot.jpg", allocator);
-    try image.write_BMP("parrot.bmp");
+    try image.write_BMP("test_output/parrot.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1350,7 +1380,7 @@ test "EARTH" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/prog/earth.jpg", allocator);
-    try image.write_BMP("earth.bmp");
+    try image.write_BMP("test_output/earth.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1362,7 +1392,7 @@ test "PENGUIN" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/prog/sub/penguin.jpg", allocator);
-    try image.write_BMP("penguin.bmp");
+    try image.write_BMP("test_output/penguin.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1374,7 +1404,7 @@ test "SLOTH" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/prog/sub/sloth.jpg", allocator);
-    try image.write_BMP("sloth.bmp");
+    try image.write_BMP("test_output/sloth.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});
@@ -1386,7 +1416,7 @@ test "TIGER" {
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/prog/sub/tiger.jpg", allocator);
-    try image.write_BMP("tiger.bmp");
+    try image.write_BMP("test_output/tiger.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});

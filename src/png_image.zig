@@ -662,6 +662,23 @@ pub const PNGImage = struct {
         }
     }
 
+    pub fn rotate(self: *PNGImage, degrees: f32) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            const data = try core.rotate(degrees);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
@@ -708,7 +725,20 @@ test "BASIC 8" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
-    try image.write_BMP("basn2c08.bmp");
+    try image.write_BMP("test_output/basn2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 ROTATE" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.rotate(45);
+    try image.write_BMP("test_output/basic_rotate.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -721,7 +751,7 @@ test "BASIC 8 REFLECT_X" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.reflection(.x);
-    try image.write_BMP("basic_reflectx.bmp");
+    try image.write_BMP("test_output/basic_reflectx.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -734,7 +764,7 @@ test "BASIC 8 REFLECT_Y" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.reflection(.y);
-    try image.write_BMP("basic_reflecty.bmp");
+    try image.write_BMP("test_output/basic_reflecty.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -747,7 +777,7 @@ test "BASIC 8 REFLECT_XY" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.reflection(.xy);
-    try image.write_BMP("basic_reflectxy.bmp");
+    try image.write_BMP("test_output/basic_reflectxy.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -759,7 +789,7 @@ test "BASIC 16" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c16.png", allocator);
-    try image.write_BMP("basn2c16.bmp");
+    try image.write_BMP("test_output/basn2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -771,7 +801,7 @@ test "BASIC NO FILTER" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/filtering/f00n2c08.png", allocator);
-    try image.write_BMP("f00n2c08.bmp");
+    try image.write_BMP("test_output/f00n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -783,7 +813,7 @@ test "BASIC SUB FILTER" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/filtering/f01n2c08.png", allocator);
-    try image.write_BMP("f01n2c08.bmp");
+    try image.write_BMP("test_output/f01n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -795,7 +825,7 @@ test "BASIC UP FILTER" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/filtering/f02n2c08.png", allocator);
-    try image.write_BMP("f02n2c08.bmp");
+    try image.write_BMP("test_output/f02n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -807,7 +837,7 @@ test "BASIC AVG FILTER" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/filtering/f03n2c08.png", allocator);
-    try image.write_BMP("f03n2c08.bmp");
+    try image.write_BMP("test_output/f03n2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -819,7 +849,7 @@ test "BASIC 8 ALPHA" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn6a08.png", allocator);
-    try image.write_BMP("basn6a08.bmp");
+    try image.write_BMP("test_output/basn6a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -831,7 +861,7 @@ test "BASIC 16 ALPHA" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn6a16.png", allocator);
-    try image.write_BMP("basn6a16.bmp");
+    try image.write_BMP("test_output/basn6a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -843,7 +873,7 @@ test "BW" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn0g01.png", allocator);
-    try image.write_BMP("basn0g01.bmp");
+    try image.write_BMP("test_output/basn0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -855,7 +885,7 @@ test "GRAY 2" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn0g02.png", allocator);
-    try image.write_BMP("basn0g02.bmp");
+    try image.write_BMP("test_output/basn0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -867,7 +897,7 @@ test "GRAY 4" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn0g04.png", allocator);
-    try image.write_BMP("basn0g04.bmp");
+    try image.write_BMP("test_output/basn0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -879,7 +909,7 @@ test "GRAY 8" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn0g08.png", allocator);
-    try image.write_BMP("basn0g08.bmp");
+    try image.write_BMP("test_output/basn0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -891,7 +921,7 @@ test "GRAY 16" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn0g16.png", allocator);
-    try image.write_BMP("basn0g16.bmp");
+    try image.write_BMP("test_output/basn0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -903,7 +933,7 @@ test "GRAY 8 ALPHA" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn4a08.png", allocator);
-    try image.write_BMP("basn4a08.bmp");
+    try image.write_BMP("test_output/basn4a08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -915,7 +945,7 @@ test "GRAY 16 ALPHA" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/basic/basn4a16.png", allocator);
-    try image.write_BMP("basn4a16.bmp");
+    try image.write_BMP("test_output/basn4a16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -927,7 +957,7 @@ test "PALETTE 8 GRAY" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/palette/ps2n2c16.png", allocator);
-    try image.write_BMP("ps2n2c16.bmp");
+    try image.write_BMP("test_output/ps2n2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -939,7 +969,7 @@ test "BW INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi0g01.png", allocator);
-    try image.write_BMP("basi0g01.bmp");
+    try image.write_BMP("test_output/basi0g01.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -951,7 +981,7 @@ test "BW 2 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi0g02.png", allocator);
-    try image.write_BMP("basi0g02.bmp");
+    try image.write_BMP("test_output/basi0g02.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -963,7 +993,7 @@ test "BW 4 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi0g04.png", allocator);
-    try image.write_BMP("basi0g04.bmp");
+    try image.write_BMP("test_output/basi0g04.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -975,7 +1005,7 @@ test "BW 8 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi0g08.png", allocator);
-    try image.write_BMP("basi0g08.bmp");
+    try image.write_BMP("test_output/basi0g08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -987,7 +1017,7 @@ test "BW 16 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi0g16.png", allocator);
-    try image.write_BMP("basi0g16.bmp");
+    try image.write_BMP("test_output/basi0g16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -999,7 +1029,7 @@ test "COLOR 8 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi2c08.png", allocator);
-    try image.write_BMP("basi2c08.bmp");
+    try image.write_BMP("test_output/basi2c08.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
@@ -1011,7 +1041,7 @@ test "COLOR 16 INTERLACE" {
     const allocator = gpa.allocator();
     var image = PNGImage{};
     try image.load("tests/png/interlacing/basi2c16.png", allocator);
-    try image.write_BMP("basi2c16.bmp");
+    try image.write_BMP("test_output/basi2c16.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});
