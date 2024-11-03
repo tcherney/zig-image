@@ -679,6 +679,23 @@ pub const PNGImage = struct {
         }
     }
 
+    pub fn shear(self: *PNGImage, c_x: f32, c_y: f32) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            const data = try core.shear(c_x, c_y);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
         self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
@@ -726,6 +743,19 @@ test "BASIC 8" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.write_BMP("test_output/basn2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 SHEAR" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.shear(0.5, 0);
+    try image.write_BMP("test_output/basic_shear.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});

@@ -109,6 +109,22 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
+    pub fn shear(self: *BMPImage, c_x: f32, c_y: f32) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            const data = try core.shear(c_x, c_y);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
     pub fn rotate(self: *BMPImage, degrees: f32) Error!void {
         if (self.loaded) {
             var core = self.image_core();
@@ -338,6 +354,18 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("test_output/os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "SHEAR" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.shear(0.5, 0);
+    try image.write_BMP("test_output/cat_shear_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});

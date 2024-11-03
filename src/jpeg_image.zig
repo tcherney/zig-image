@@ -1214,6 +1214,23 @@ pub const JPEGImage = struct {
         }
     }
 
+    pub fn shear(self: *JPEGImage, c_x: f32, c_y: f32) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            const data = try core.shear(c_x, c_y);
+            const data_copy = data.data;
+            self.width = data.width;
+            self.height = data.height;
+            defer self.allocator.free(data_copy);
+            self.data.clearRetainingCapacity();
+            for (0..data_copy.len) |i| {
+                try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn image_core(self: *JPEGImage) utils.ImageCore {
         return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
@@ -1248,6 +1265,19 @@ test "CAT" {
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
+    }
+}
+
+test "SHEAR" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load("tests/jpeg/cat.jpg", allocator);
+    try image.shear(0.5, 0);
+    try image.write_BMP("test_output/cat_shear_jpg.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        JPEG_LOG.warn("Leaked!\n", .{});
     }
 }
 

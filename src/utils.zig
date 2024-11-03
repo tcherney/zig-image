@@ -430,7 +430,6 @@ pub const ImageCore = struct {
         var min_y: f32 = points[0].y;
         var max_y: f32 = points[0].y;
         for (1..points.len) |i| {
-            std.log.warn("rotated point {any}\n", .{points[i]});
             min_x = @min(min_x, points[i].x);
             max_x = @max(max_x, points[i].x);
             min_y = @min(min_y, points[i].y);
@@ -444,7 +443,6 @@ pub const ImageCore = struct {
         }
         var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
         defer self.allocator.free(vectors);
-        std.log.warn("min_x {d} max_x {d} min_y {d} max_y {d} width {d} height {d} len {d}\n", .{ min_x, max_x, min_y, max_y, width, height, data_copy.len });
         var translate_mat = try Mat(3).translate(-@as(f32, @floatFromInt((width - 1) / 2)), -@as(f32, @floatFromInt((height - 1) / 2)));
         const rotate_mat = try Mat(3).rotate(-degrees);
         for (0..height) |i| {
@@ -475,7 +473,6 @@ pub const ImageCore = struct {
                 if (ceil_y >= 0) max_y_overlap = @as(usize, @intFromFloat(ceil_y));
                 const x_per = vectors[i * width + j][0] - @floor(vectors[i * width + j][0]);
                 const y_per = vectors[i * width + j][1] - @floor(vectors[i * width + j][1]);
-
                 var average_pixel: struct { r: f32, g: f32, b: f32, a: f32 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
                 var weight: f32 = 0;
                 var indx: usize = 0;
@@ -533,8 +530,121 @@ pub const ImageCore = struct {
         }
         return .{ .width = width, .height = height, .data = data_copy };
     }
-    pub fn shear(self: *const Self) Error![]Pixel {
-        _ = try self.allocator.dupe(Pixel, self.data);
+    pub fn shear(self: *const Self, c_x: f32, c_y: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
+        var corners: [4]Mat(3).Vec = undefined;
+        corners[0] = .{ 0, 0, 1 };
+        corners[1] = .{
+            0,
+            @as(f32, @floatFromInt(self.height)) - 1,
+            1,
+        };
+        corners[2] = .{
+            @as(f32, @floatFromInt(self.width)) - 1,
+            0,
+            1,
+        };
+        corners[3] = .{
+            @as(f32, @floatFromInt(self.width)) - 1,
+            @as(f32, @floatFromInt(self.height)) - 1,
+            1,
+        };
+        const shear_forward = try Mat(3).shear(c_x, c_y);
+        for (0..4) |i| {
+            corners[i] = shear_forward.mul_v(corners[i]);
+        }
+        var min_x: f32 = corners[0][0];
+        var max_x: f32 = corners[0][0];
+        var min_y: f32 = corners[0][1];
+        var max_y: f32 = corners[0][1];
+        for (1..4) |i| {
+            min_x = @min(min_x, corners[i][0]);
+            max_x = @max(max_x, corners[i][0]);
+            min_y = @min(min_y, corners[i][1]);
+            max_y = @max(max_y, corners[i][1]);
+        }
+        const width = @as(u32, @intFromFloat(@round(max_x - min_x)));
+        const height = @as(u32, @intFromFloat(@round(max_y - min_y)));
+        var data_copy = try self.allocator.alloc(Pixel, width * height);
+        for (0..data_copy.len) |i| {
+            data_copy[i] = Pixel{};
+        }
+        var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
+        defer self.allocator.free(vectors);
+        const shear_reverse = try Mat(3).shear(-c_x, -c_y);
+        for (0..height) |i| {
+            for (0..width) |j| {
+                vectors[i * width + j] = shear_reverse.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) }));
+                if (vectors[i * width + j][0] < 0 or vectors[i * width + j][1] < 0) continue;
+                const floored_x = @floor(vectors[i * width + j][0]);
+                const floored_y = @floor(vectors[i * width + j][1]);
+                const ceil_x = @ceil(vectors[i * width + j][0]);
+                const ceil_y = @ceil(vectors[i * width + j][1]);
+                var min_x_overlap: usize = undefined;
+                var min_y_overlap: usize = undefined;
+                var max_x_overlap: usize = undefined;
+                var max_y_overlap: usize = undefined;
+                if (floored_x >= 0) min_x_overlap = @as(usize, @intFromFloat(floored_x));
+                if (floored_y >= 0) min_y_overlap = @as(usize, @intFromFloat(floored_y));
+                if (ceil_x >= 0) max_x_overlap = @as(usize, @intFromFloat(ceil_x));
+                if (ceil_y >= 0) max_y_overlap = @as(usize, @intFromFloat(ceil_y));
+                const x_per = vectors[i * width + j][0] - @floor(vectors[i * width + j][0]);
+                const y_per = vectors[i * width + j][1] - @floor(vectors[i * width + j][1]);
+                var average_pixel: struct { r: f32, g: f32, b: f32, a: f32 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+                var weight: f32 = 0;
+                var indx: usize = undefined;
+                if (floored_x >= 0 and floored_y >= 0) {
+                    indx = min_y_overlap * self.width + min_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and min_x_overlap < self.width) {
+                        const scale = ((1 - x_per) * (1 - y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (ceil_x >= 0 and floored_y >= 0) {
+                    indx = min_y_overlap * self.width + max_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and max_x_overlap < self.width) {
+                        const scale = ((x_per) * (1 - y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (floored_x >= 0 and ceil_y >= 0) {
+                    indx = max_y_overlap * self.width + min_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and min_x_overlap < self.width) {
+                        const scale = ((1 - x_per) * (y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (ceil_y >= 0 and ceil_x >= 0) {
+                    indx = max_y_overlap * self.width + max_x_overlap;
+                    if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and max_x_overlap < self.width) {
+                        const scale = ((x_per) * (y_per));
+                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        weight += scale;
+                    }
+                }
+                if (weight != 0) {
+                    data_copy[i * width + j].set_r(@as(u8, @intFromFloat(average_pixel.r / weight)));
+                    data_copy[i * width + j].set_g(@as(u8, @intFromFloat(average_pixel.g / weight)));
+                    data_copy[i * width + j].set_b(@as(u8, @intFromFloat(average_pixel.b / weight)));
+                    data_copy[i * width + j].set_a(@as(u8, @intFromFloat(average_pixel.a / weight)));
+                }
+            }
+        }
+        return .{ .width = width, .height = height, .data = data_copy };
     }
     pub fn write_BMP(self: *const Self, file_name: []const u8) Error!void {
         const image_file = try std.fs.cwd().createFile(file_name, .{});
@@ -590,12 +700,10 @@ pub const ImageCore = struct {
 };
 
 pub fn timer_end() void {
-    std.log.warn("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
+    std.log.debug("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
     timer.reset();
 }
 
-//TODO replace with @Vector4 and add matrix4 to do transformations with as first step in paralellizing with simd instructions
-//TODO represent matrix with rows made of vectors, may have to store normally and vectorize pre calculation to choose row or column (would need both for matrix mult)
 pub fn Mat(comptime S: comptime_int) type {
     return struct {
         data: [S * S]f32 = undefined,
@@ -607,10 +715,10 @@ pub fn Mat(comptime S: comptime_int) type {
             ArgError,
         };
         pub fn print(self: *const Self) void {
-            std.log.warn("{any}\n", .{self.data});
+            std.log.info("{any}\n", .{self.data});
             for (0..S) |i| {
                 const v: Vec = self.data[i * S .. i * S + S][0..S].*;
-                std.log.warn("{any}\n", .{v});
+                std.log.info("{any}\n", .{v});
             }
         }
         pub fn scale(s: f32) Error!Self {
@@ -692,7 +800,7 @@ pub fn Mat(comptime S: comptime_int) type {
                     res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
                 }
             }
-            std.log.warn("matrix matrix {any}\n", .{res.data});
+            std.log.debug("matrix matrix {any}\n", .{res.data});
             return res;
         }
         pub fn naive_mul(self: *const Self, other: Self) Self {
@@ -700,18 +808,18 @@ pub fn Mat(comptime S: comptime_int) type {
             for (0..S) |i| {
                 for (0..S) |j| {
                     res.data[i * S + j] = 0;
-                    std.debug.print("C{d}{d} = ", .{ i, j });
+                    //std.debug.print("C{d}{d} = ", .{ i, j });
                     for (0..S) |k| {
-                        std.debug.print("{d} x {d}", .{ self.data[i * S + k], other.data[k * S + j] });
+                        //std.debug.print("{d} x {d}", .{ self.data[i * S + k], other.data[k * S + j] });
                         res.data[i * S + j] += self.data[i * S + k] * other.data[k * S + j];
                         if (k < S - 1) {
-                            std.debug.print(" + ", .{});
+                            //std.debug.print(" + ", .{});
                         }
                     }
-                    std.debug.print(" = {d}\n", .{res.data[i * S + j]});
+                    //std.debug.print(" = {d}\n", .{res.data[i * S + j]});
                 }
             }
-            std.log.warn("matrix matrix {any}\n", .{res.data});
+            //std.log.warn("matrix matrix {any}\n", .{res.data});
             return res;
         }
         pub fn naive_mul_v(self: *const Self, v: [S]f32) [S]f32 {
