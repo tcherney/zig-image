@@ -274,25 +274,26 @@ pub const ImageCore = struct {
     //TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
     //TODO lowpass highpass fourier denoising
     pub fn spatial_highpass(self: *const Self) Error![]Pixel {
-        const highpass_mat = try Mat(4).spatial_highpass();
+        const highpass_mat = try Mat(3).spatial_highpass();
         return try self.convol(highpass_mat);
     }
-    pub fn convol(self: *const Self, kernel: Mat(4)) Error![]Pixel {
+    pub fn convol(self: *const Self, kernel: Mat(3)) Error![]Pixel {
         var data_copy = try self.allocator.dupe(Pixel, self.data);
         std.debug.print("kernel\n", .{});
         kernel.print();
         for (0..self.height) |i| {
             for (0..self.width) |j| {
                 const indx: usize = (i * self.width + j);
-                if (indx > 2 and indx < self.data.len - 3) {
-                    var float_vector: Mat(4).Vec = @splat(0);
-                    for (0..4) |k| {
-                        const sum_indx: usize = (i * self.width + j) + k - 2;
-                        //TODO fix to do calc for each color the vector should be made up of a sliding window for each color channel
-                        float_vector += @as(Mat(4).Vec, @floatFromInt(self.data[sum_indx].v)) * kernel.row(k);
+                if (i >= 1 and j >= 1 and i < self.height - 1 and j < self.width - 1) {
+                    for (0..3) |c| {
+                        var sum: f32 = 0;
+                        for (0..3) |k| {
+                            const float_vector: Mat(3).Vec = .{ @floatFromInt(self.data[indx - self.width - 1 + k].v[c]), @floatFromInt(self.data[indx - 1 + k].v[c]), @floatFromInt(self.data[indx + self.width - 1 + k].v[c]) };
+                            sum += @reduce(.Add, float_vector * kernel.row(k));
+                        }
+                        data_copy[indx].v[c] = if (sum > 255) 255 else if (sum < 0) 0 else @as(u8, @intFromFloat(sum));
                     }
                     //std.debug.print("float_vector {any}\n", .{float_vector});
-                    data_copy[indx].v = @intFromFloat(Mat(4).clamp_vector(float_vector, 0, 255));
                 } else {
                     data_copy[indx] = Pixel.init(0, 0, 0, null);
                 }
@@ -879,17 +880,17 @@ pub fn Mat(comptime S: comptime_int) type {
         pub fn spatial_highpass() Error!Self {
             if (S < 3) return Error.TransformationUndefined;
             var ret = Self{};
-            ret.data[0] = 0;
+            ret.data[0] = -1;
             ret.data[1] = -1;
-            ret.data[2] = 0;
+            ret.data[2] = -1;
 
             ret.data[S] = -1;
-            ret.data[S + 1] = 5;
+            ret.data[S + 1] = 8;
             ret.data[S + 2] = -1;
 
-            ret.data[2 * S] = 0;
+            ret.data[2 * S] = -1;
             ret.data[2 * S + 1] = -1;
-            ret.data[2 * S + 2] = 0;
+            ret.data[2 * S + 2] = -1;
             ret.fill_identity(3);
             return ret;
         }
