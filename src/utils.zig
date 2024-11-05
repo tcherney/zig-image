@@ -272,6 +272,34 @@ pub const ImageCore = struct {
         return data_copy;
     }
     //TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
+    //TODO lowpass highpass fourier denoising
+    pub fn spatial_highpass(self: *const Self) Error![]Pixel {
+        const highpass_mat = try Mat(4).spatial_highpass();
+        return try self.convol(highpass_mat);
+    }
+    pub fn convol(self: *const Self, kernel: Mat(4)) Error![]Pixel {
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
+        std.debug.print("kernel\n", .{});
+        kernel.print();
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const indx: usize = (i * self.width + j);
+                if (indx > 2 and indx < self.data.len - 3) {
+                    var float_vector: Mat(4).Vec = @splat(0);
+                    for (0..4) |k| {
+                        const sum_indx: usize = (i * self.width + j) + k - 2;
+                        //TODO fix to do calc for each color the vector should be made up of a sliding window for each color channel
+                        float_vector += @as(Mat(4).Vec, @floatFromInt(self.data[sum_indx].v)) * kernel.row(k);
+                    }
+                    //std.debug.print("float_vector {any}\n", .{float_vector});
+                    data_copy[indx].v = @intFromFloat(Mat(4).clamp_vector(float_vector, 0, 255));
+                } else {
+                    data_copy[indx] = Pixel.init(0, 0, 0, null);
+                }
+            }
+        }
+        return data_copy;
+    }
     //reflect along an axis x, y or both
     pub fn reflection(self: *const Self, comptime axis: @Type(.EnumLiteral)) Error![]Pixel {
         var data_copy = try self.allocator.dupe(Pixel, self.data);
@@ -444,7 +472,7 @@ pub const ImageCore = struct {
         var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
         defer self.allocator.free(vectors);
         var translate_mat = try Mat(3).translate(-@as(f32, @floatFromInt((width - 1) / 2)), -@as(f32, @floatFromInt((height - 1) / 2)));
-        const rotate_mat = try Mat(3).rotate(-degrees);
+        const rotate_mat = try Mat(3).rotate(.z, -degrees);
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
@@ -715,52 +743,155 @@ pub fn Mat(comptime S: comptime_int) type {
             ArgError,
         };
         pub fn print(self: *const Self) void {
-            std.log.info("{any}\n", .{self.data});
+            std.log.warn("{any}\n", .{self.data});
             for (0..S) |i| {
                 const v: Vec = self.data[i * S .. i * S + S][0..S].*;
-                std.log.info("{any}\n", .{v});
+                std.log.warn("{any}\n", .{v});
             }
         }
         pub fn scale(s: f32) Error!Self {
-            if (S != 3) return Error.TransformationUndefined;
-            return Self{ .data = .{
-                s, 0, 0,
-                0, s, 0,
-                0, 0, 1,
-            } };
+            if (S < 2) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = s;
+            ret.data[1] = 0;
+            ret.data[2] = 0;
+
+            ret.data[S] = 0;
+            ret.data[S + 1] = s;
+            ret.data[S + 2] = 0;
+            ret.fill_identity(2);
+            return ret;
         }
-        pub fn rotate(degrees: f32) Error!Self {
-            if (S != 3) return Error.TransformationUndefined;
+        pub fn fill_identity(self: *Self, rc_start: usize) void {
+            for (rc_start..S) |i| {
+                for (0..S - 1) |j| {
+                    self.data[j * S + i] = 0;
+                    self.data[i * S + j] = 0;
+                }
+                self.data[i * S + i] = 1;
+            }
+        }
+
+        pub fn clamp_vector(v: Vec, min: f32, max: f32) Vec {
+            const min_v: Vec = @splat(min);
+            const max_v: Vec = @splat(max);
+            var pred: @Vector(S, bool) = v < min_v;
+            var res: Vec = @select(f32, pred, min_v, v);
+            pred = res > max_v;
+            res = @select(f32, pred, max_v, res);
+            return res;
+        }
+
+        pub fn fill_x(self: *Self, rc_start: usize, x: f32) void {
+            for (rc_start..S) |i| {
+                for (rc_start..S) |j| {
+                    self.data[i * S + j] = x;
+                }
+            }
+        }
+        pub fn rotate(comptime axis: @Type(.EnumLiteral), degrees: f32) Error!Self {
+            if (S < 2) return Error.TransformationUndefined;
             const rad = degrees * std.math.rad_per_deg;
-            return Self{ .data = .{
-                std.math.cos(rad), -std.math.sin(rad), 0,
-                std.math.sin(rad), std.math.cos(rad),  0,
-                0,                 0,                  1,
-            } };
+            var ret = Self{};
+            switch (axis) {
+                .x => {
+                    if (S < 4) return Error.TransformationUndefined;
+                    ret.data[0] = 1;
+                    ret.data[1] = 0;
+                    ret.data[2] = 0;
+
+                    ret.data[S] = 0;
+                    ret.data[S + 1] = std.math.cos(rad);
+                    ret.data[S + 2] = std.math.sin(rad);
+
+                    ret.data[2 * S] = 0;
+                    ret.data[2 * S + 1] = -std.math.sin(rad);
+                    ret.data[2 * S + 2] = std.math.cos(rad);
+                    ret.fill_identity(3);
+                },
+                .y => {
+                    if (S < 4) return Error.TransformationUndefined;
+                    ret.data[0] = std.math.cos(rad);
+                    ret.data[1] = 0;
+                    ret.data[2] = -std.math.sin(rad);
+
+                    ret.data[S] = 0;
+                    ret.data[S + 1] = 1;
+                    ret.data[S + 2] = 0;
+
+                    ret.data[2 * S] = std.math.sin(rad);
+                    ret.data[2 * S + 1] = 0;
+                    ret.data[2 * S + 2] = std.math.cos(rad);
+                    ret.fill_identity(3);
+                },
+                .z => {
+                    ret.data[0] = std.math.cos(rad);
+                    ret.data[1] = -std.math.sin(rad);
+
+                    ret.data[S] = std.math.sin(rad);
+                    ret.data[S + 1] = std.math.cos(rad);
+                    ret.fill_identity(2);
+                },
+                else => return Error.TransformationUndefined,
+            }
+            return ret;
         }
         pub fn shear(x: f32, y: f32) Error!Self {
-            if (S != 3) return Error.TransformationUndefined;
-            return Self{ .data = .{
-                1, y, 0,
-                x, 1, 0,
-                0, 0, 1,
-            } };
+            if (S < 2) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = 1;
+            ret.data[1] = y;
+            ret.data[2] = 0;
+
+            ret.data[S] = x;
+            ret.data[S + 1] = 1;
+            ret.data[S + 2] = 0;
+            ret.fill_identity(2);
+            return ret;
         }
         pub fn translate(x: f32, y: f32) Error!Self {
-            if (S != 3) return Error.TransformationUndefined;
-            return Self{ .data = .{
-                1, 0, x,
-                0, 1, y,
-                0, 0, 1,
-            } };
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = 1;
+            ret.data[1] = 0;
+            ret.data[2] = x;
+
+            ret.data[S] = 0;
+            ret.data[S + 1] = 1;
+            ret.data[S + 2] = y;
+
+            ret.data[2 * S] = 0;
+            ret.data[2 * S + 1] = 0;
+            ret.data[2 * S + 2] = 1;
+            ret.fill_identity(3);
+            return ret;
         }
         pub fn identity() Error!Self {
-            if (S != 3) return Error.TransformationUndefined;
-            return Self{ .data = .{
-                1, 0, 0,
-                0, 1, 0,
-                0, 0, 1,
-            } };
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.fill_identity(0);
+            return ret;
+        }
+        pub fn spatial_lowpass() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            return Self{ .data = [_]f32{1.0 / 9.0} ** (S * S) };
+        }
+        pub fn spatial_highpass() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = 0;
+            ret.data[1] = -1;
+            ret.data[2] = 0;
+
+            ret.data[S] = -1;
+            ret.data[S + 1] = 5;
+            ret.data[S + 2] = -1;
+
+            ret.data[2 * S] = 0;
+            ret.data[2 * S + 1] = -1;
+            ret.data[2 * S + 2] = 0;
+            ret.fill_identity(3);
+            return ret;
         }
         pub fn vectorize(args: anytype) Error!Vec {
             const ArgsType = @TypeOf(args);
@@ -778,6 +909,9 @@ pub fn Mat(comptime S: comptime_int) type {
             res[S - 1] = 1;
             //std.log.warn("vectorized {any}\n", .{res});
             return res;
+        }
+        pub fn row(self: *const Self, r: usize) Mat(S).Vec {
+            return self.data[r * S .. r * S + S][0..S].*;
         }
         pub fn mul_v(self: *const Self, v: Vec) Vec {
             var res: Vec = undefined;
@@ -874,10 +1008,14 @@ test "MATRIX" {
     _ = m.naive_mul(m2);
     timer_end();
 
-    const rotate = try Matrix.rotate(45);
+    const rotate = try Matrix.rotate(.z, 45);
+    rotate.print();
     _ = rotate.mul_v(.{ 5, 5, 1 });
 
     _ = try Matrix.vectorize(.{ 2, 4 });
+
+    const scale = try Mat(4).scale(5);
+    scale.print();
 }
 
 pub const Pixel = struct {
