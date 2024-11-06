@@ -8,6 +8,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+pub const ConvolMat = utils.ConvolMat;
 const PNG_LOG = std.log.scoped(.png_image);
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -650,6 +651,17 @@ pub const PNGImage = struct {
             return Error.NotLoaded;
         }
     }
+    pub fn convol(self: *PNGImage, kernel: ConvolMat) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().convol(kernel);
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
     pub fn reflection(self: *PNGImage, comptime axis: @Type(.EnumLiteral)) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().reflection(axis);
@@ -690,6 +702,18 @@ pub const PNGImage = struct {
             self.data.clearRetainingCapacity();
             for (0..data_copy.len) |i| {
                 try self.data.append(data_copy[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
+    pub fn edge_detection(self: *PNGImage) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().edge_detection();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
             }
         } else {
             return Error.NotLoaded;
@@ -743,6 +767,19 @@ test "BASIC 8" {
     var image = PNGImage{};
     try image.load("tests/png/basic/basn2c08.png", allocator);
     try image.write_BMP("test_output/basn2c08.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
+test "BASIC 8 EDGE DETECTION" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.edge_detection();
+    try image.write_BMP("test_output/basic_edge_detection.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});

@@ -13,6 +13,7 @@ pub const ByteStream = utils.ByteStream;
 pub const BitReader = utils.BitReader;
 pub const ImageCore = utils.ImageCore;
 pub const Pixel = utils.Pixel;
+pub const ConvolMat = utils.ConvolMat;
 pub const JPEGImage: type = jpeg_image.JPEGImage;
 pub const PNGImage: type = png_image.PNGImage;
 pub const BMPImage: type = bmp_image.BMPImage;

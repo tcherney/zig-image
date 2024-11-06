@@ -272,15 +272,39 @@ pub const ImageCore = struct {
         return data_copy;
     }
     //TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
-    //TODO lowpass highpass fourier denoising
-    pub fn spatial_highpass(self: *const Self) Error![]Pixel {
-        const highpass_mat = try Mat(3).spatial_highpass();
-        return try self.convol(highpass_mat);
+    pub fn edge_detection(self: *const Self) Error![]Pixel {
+        const edge_detect_mat = try ConvolMat.edge_detection();
+        return try self.convol(edge_detect_mat);
     }
-    pub fn convol(self: *const Self, kernel: Mat(3)) Error![]Pixel {
+
+    pub fn fft(buf: []f32, out: []f32, n: usize, step: usize) void {
+        _ = buf;
+        _ = out;
+        _ = n;
+        _ = step;
+    }
+
+    pub fn fft_rep(self: *const Self) Error![]Pixel {
+        const gray_data = try self.grayscale();
+        var fft_calc: []f32 = try self.allocator.alloc(f32, self.data.len);
+        for (0..fft_calc.len) |i| {
+            fft_calc[i] = @floatFromInt(self.data[i].v[0]);
+        }
+        self.allocator.free(gray_data);
+        const fft_out = try self.allocator.dupe(f32, fft_calc);
+        fft(fft_calc, fft_out, fft_calc.len, 1);
         var data_copy = try self.allocator.dupe(Pixel, self.data);
-        std.debug.print("kernel\n", .{});
-        kernel.print();
+        for (0..data_copy.len) |i| {
+            const fft_val: u8 = @intFromFloat(fft_calc[i]);
+            for (0..3) |j| {
+                data_copy[i].v[j] = fft_val;
+            }
+        }
+        self.allocator.free(fft_calc);
+        return data_copy;
+    }
+    pub fn convol(self: *const Self, kernel: ConvolMat) Error![]Pixel {
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
         for (0..self.height) |i| {
             for (0..self.width) |j| {
                 const indx: usize = (i * self.width + j);
@@ -288,12 +312,11 @@ pub const ImageCore = struct {
                     for (0..3) |c| {
                         var sum: f32 = 0;
                         for (0..3) |k| {
-                            const float_vector: Mat(3).Vec = .{ @floatFromInt(self.data[indx - self.width - 1 + k].v[c]), @floatFromInt(self.data[indx - 1 + k].v[c]), @floatFromInt(self.data[indx + self.width - 1 + k].v[c]) };
+                            const float_vector: ConvolMat.Vec = .{ @floatFromInt(self.data[indx - self.width - 1 + k].v[c]), @floatFromInt(self.data[indx - 1 + k].v[c]), @floatFromInt(self.data[indx + self.width - 1 + k].v[c]) };
                             sum += @reduce(.Add, float_vector * kernel.row(k));
                         }
                         data_copy[indx].v[c] = if (sum > 255) 255 else if (sum < 0) 0 else @as(u8, @intFromFloat(sum));
                     }
-                    //std.debug.print("float_vector {any}\n", .{float_vector});
                 } else {
                     data_copy[indx] = Pixel.init(0, 0, 0, null);
                 }
@@ -733,6 +756,8 @@ pub fn timer_end() void {
     timer.reset();
 }
 
+pub const ConvolMat = Mat(3);
+
 pub fn Mat(comptime S: comptime_int) type {
     return struct {
         data: [S * S]f32 = undefined,
@@ -744,10 +769,10 @@ pub fn Mat(comptime S: comptime_int) type {
             ArgError,
         };
         pub fn print(self: *const Self) void {
-            std.log.warn("{any}\n", .{self.data});
+            std.log.debug("{any}\n", .{self.data});
             for (0..S) |i| {
                 const v: Vec = self.data[i * S .. i * S + S][0..S].*;
-                std.log.warn("{any}\n", .{v});
+                std.log.debug("{any}\n", .{v});
             }
         }
         pub fn scale(s: f32) Error!Self {
@@ -873,11 +898,8 @@ pub fn Mat(comptime S: comptime_int) type {
             ret.fill_identity(0);
             return ret;
         }
-        pub fn spatial_lowpass() Error!Self {
-            if (S < 3) return Error.TransformationUndefined;
-            return Self{ .data = [_]f32{1.0 / 9.0} ** (S * S) };
-        }
-        pub fn spatial_highpass() Error!Self {
+
+        pub fn edge_detection() Error!Self {
             if (S < 3) return Error.TransformationUndefined;
             var ret = Self{};
             ret.data[0] = -1;
@@ -894,6 +916,76 @@ pub fn Mat(comptime S: comptime_int) type {
             ret.fill_identity(3);
             return ret;
         }
+
+        pub fn vertical_edge_detection() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = -1;
+            ret.data[1] = 0;
+            ret.data[2] = 1;
+
+            ret.data[S] = -1;
+            ret.data[S + 1] = 0;
+            ret.data[S + 2] = 1;
+
+            ret.data[2 * S] = -1;
+            ret.data[2 * S + 1] = 0;
+            ret.data[2 * S + 2] = 1;
+            ret.fill_identity(3);
+            return ret;
+        }
+        pub fn horizontal_edge_detection() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = -1;
+            ret.data[1] = -1;
+            ret.data[2] = -1;
+
+            ret.data[S] = 0;
+            ret.data[S + 1] = 0;
+            ret.data[S + 2] = 0;
+
+            ret.data[2 * S] = 1;
+            ret.data[2 * S + 1] = 1;
+            ret.data[2 * S + 2] = 1;
+            ret.fill_identity(3);
+            return ret;
+        }
+        pub fn sharpen() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = 0;
+            ret.data[1] = -1;
+            ret.data[2] = 0;
+
+            ret.data[S] = -1;
+            ret.data[S + 1] = 4;
+            ret.data[S + 2] = -1;
+
+            ret.data[2 * S] = 0;
+            ret.data[2 * S + 1] = -1;
+            ret.data[2 * S + 2] = 0;
+            ret.fill_identity(3);
+            return ret;
+        }
+        pub fn box_blur() Error!Self {
+            if (S < 3) return Error.TransformationUndefined;
+            var ret = Self{};
+            ret.data[0] = 1.0 / 9.0;
+            ret.data[1] = 1.0 / 9.0;
+            ret.data[2] = 1.0 / 9.0;
+
+            ret.data[S] = 1.0 / 9.0;
+            ret.data[S + 1] = 1.0 / 9.0;
+            ret.data[S + 2] = 1.0 / 9.0;
+
+            ret.data[2 * S] = 1.0 / 9.0;
+            ret.data[2 * S + 1] = 1.0 / 9.0;
+            ret.data[2 * S + 2] = 1.0 / 9.0;
+            ret.fill_identity(3);
+            return ret;
+        }
+
         pub fn vectorize(args: anytype) Error!Vec {
             const ArgsType = @TypeOf(args);
             const args_type_info = @typeInfo(ArgsType);

@@ -2,6 +2,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+pub const ConvolMat = utils.ConvolMat;
 const JPEG_LOG = std.log.scoped(.jpeg_image);
 
 const JPEG_HEADERS = enum(u8) {
@@ -1197,9 +1198,9 @@ pub const JPEGImage = struct {
         }
     }
 
-    pub fn spatial_highpass(self: *JPEGImage) Error!void {
+    pub fn edge_detection(self: *JPEGImage) Error!void {
         if (self.loaded) {
-            const data_copy = try self.image_core().spatial_highpass();
+            const data_copy = try self.image_core().edge_detection();
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
@@ -1243,6 +1244,18 @@ pub const JPEGImage = struct {
         }
     }
 
+    pub fn convol(self: *JPEGImage, kernel: ConvolMat) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().convol(kernel);
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn image_core(self: *JPEGImage) utils.ImageCore {
         return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
@@ -1280,13 +1293,13 @@ test "CAT" {
     }
 }
 
-test "HIGHPASS" {
+test "EDGE DETECTION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     var image = JPEGImage{};
     try image.load("tests/jpeg/cat.jpg", allocator);
-    try image.spatial_highpass();
-    try image.write_BMP("test_output/cat_highpass_jpg.bmp");
+    try image.edge_detection();
+    try image.write_BMP("test_output/cat_edge_detection_jpg.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.warn("Leaked!\n", .{});

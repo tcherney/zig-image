@@ -2,6 +2,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+pub const ConvolMat = utils.ConvolMat;
 const BMP_LOG = std.log.scoped(.bmp_image);
 
 pub const BMPImage = struct {
@@ -98,9 +99,20 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
-    pub fn spatial_highpass(self: *BMPImage) Error!void {
+    pub fn edge_detection(self: *BMPImage) Error!void {
         if (self.loaded) {
-            const data_copy = try self.image_core().spatial_highpass();
+            const data_copy = try self.image_core().edge_detection();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+    pub fn convol(self: *BMPImage, kernel: ConvolMat) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().convol(kernel);
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
@@ -370,13 +382,13 @@ test "CAT" {
         BMP_LOG.warn("Leaked!\n", .{});
     }
 }
-test "HIGHPASS" {
+test "EDGE DETECTION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
-    try image.spatial_highpass();
-    try image.write_BMP("test_output/cat_highpass_bmp.bmp");
+    try image.edge_detection();
+    try image.write_BMP("test_output/cat_edge_detection_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});
