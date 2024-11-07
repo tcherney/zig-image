@@ -121,6 +121,18 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
+
+    pub fn fft_rep(self: *BMPImage) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().fft_rep();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
     pub fn reflection(self: *BMPImage, comptime axis: @Type(.EnumLiteral)) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().reflection(axis);
@@ -377,6 +389,18 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("test_output/os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "FFT REP" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.fft_rep();
+    try image.write_BMP("test_output/cat_fft_rep_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});

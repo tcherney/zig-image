@@ -276,31 +276,84 @@ pub const ImageCore = struct {
         const edge_detect_mat = try ConvolMat.edge_detection();
         return try self.convol(edge_detect_mat);
     }
-
-    pub fn fft(buf: []f32, out: []f32, n: usize, step: usize) void {
-        _ = buf;
-        _ = out;
-        _ = n;
-        _ = step;
+    pub const Complex = struct {
+        re: f32 = 0,
+        im: f32 = 0,
+        pub fn init(re: f32, im: f32) Complex {
+            return Complex{
+                .re = re,
+                .im = im,
+            };
+        }
+        pub fn add(self: *const Complex, other: Complex) Complex {
+            return Complex{
+                .re = self.re + other.re,
+                .im = self.im + other.im,
+            };
+        }
+        pub fn sub(self: *const Complex, other: Complex) Complex {
+            return Complex{
+                .re = self.re - other.re,
+                .im = self.im - other.im,
+            };
+        }
+        pub fn mul(self: *const Complex, other: Complex) Complex {
+            return Complex{
+                .re = self.re * other.re - self.im * other.im,
+                .im = self.im * other.re + self.re * other.im,
+            };
+        }
+        pub fn div(self: *const Complex, other: Complex) Complex {
+            const re_num = self.re * other.re + self.im * other.im;
+            const im_num = self.im * other.re - self.re * other.im;
+            const den = other.re * other.re + other.im * other.im;
+            return Complex{
+                .re = re_num / den,
+                .im = im_num / den,
+            };
+        }
+        pub fn mag(self: *const Complex) f32 {
+            return @sqrt(self.re * self.re + self.im * self.im);
+        }
+    };
+    //TODO convert to zig https://github.com/alokbakshi/FFT/blob/master/fft_rec.c https://alokbakshi.github.io/fft-1 https://ejectamenta.com/imaging-experiments/fourifier/
+    pub fn fft(buf: []Complex, in: []Complex, n: usize, step: usize) void {
+        if (step < n) {
+            fft(in, buf, n / 2, step * 2);
+            fft(in[step..], buf[step..], n / 2, step * 2);
+            var i: usize = 0;
+            while (i < n) : (i += 2 * step) {
+                const t: Complex = Complex.init(0, @exp(std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(n)))).mul(in[i + step]);
+                buf[i / 2] = in[i].add(t);
+                buf[(i + n) / 2] = in[i].sub(t);
+            }
+        }
     }
 
     pub fn fft_rep(self: *const Self) Error![]Pixel {
         const gray_data = try self.grayscale();
-        var fft_calc: []f32 = try self.allocator.alloc(f32, self.data.len);
-        for (0..fft_calc.len) |i| {
-            fft_calc[i] = @floatFromInt(self.data[i].v[0]);
+        var fft_buf: []Complex = try self.allocator.alloc(Complex, self.data.len);
+        for (0..fft_buf.len) |i| {
+            fft_buf[i] = Complex.init(@floatFromInt(self.data[i].v[0]), 0);
         }
         self.allocator.free(gray_data);
-        const fft_out = try self.allocator.dupe(f32, fft_calc);
-        fft(fft_calc, fft_out, fft_calc.len, 1);
+        const fft_in = try self.allocator.dupe(Complex, fft_buf);
+        fft(fft_buf, fft_in, fft_buf.len, 1);
         var data_copy = try self.allocator.dupe(Pixel, self.data);
+        var max_mag: f32 = fft_buf[0].mag();
+        for (1..fft_buf.len) |i| {
+            max_mag = @max(fft_buf[i].mag(), max_mag);
+        }
+        const c = 255.0 / (@log(1 + @abs(max_mag)));
         for (0..data_copy.len) |i| {
-            const fft_val: u8 = @intFromFloat(fft_calc[i]);
+            const mag = c * @log(1 + @abs(fft_buf[i].mag()));
+            const fft_val: u8 = if (mag > 255) 255 else if (mag < 0) 0 else @as(u8, @intFromFloat(mag));
             for (0..3) |j| {
                 data_copy[i].v[j] = fft_val;
             }
         }
-        self.allocator.free(fft_calc);
+        self.allocator.free(fft_buf);
+        self.allocator.free(fft_in);
         return data_copy;
     }
     pub fn convol(self: *const Self, kernel: ConvolMat) Error![]Pixel {
