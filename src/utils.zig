@@ -41,7 +41,7 @@ pub const ImageCore = struct {
     data: []Pixel,
     allocator: std.mem.Allocator,
     const Self = @This();
-    pub const Error = error{} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || Mat(3).Error;
+    pub const Error = error{FFTPow2} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || Mat(3).Error;
     const BicubicPixel = struct {
         r: f32 = 0,
         g: f32 = 0,
@@ -277,8 +277,6 @@ pub const ImageCore = struct {
         return try self.convol(edge_detect_mat);
     }
     pub const Complex = std.math.complex.Complex(f32);
-    //TODO convert to zig https://github.com/alokbakshi/FFT/blob/master/fft_rec.c https://alokbakshi.github.io/fft-1 https://ejectamenta.com/imaging-experiments/fourifier/ https://homepages.inf.ed.ac.uk/rbf/HIPR2/fourier.htm https://rosettacode.org/wiki/Fast_Fourier_transform
-    //TODO try using c# rosetta version
     pub fn fft_bit_reverse(n: usize, bits: usize) usize {
         var reversed_n: usize = n;
         var count: usize = bits - 1;
@@ -291,25 +289,12 @@ pub const ImageCore = struct {
         }
         return ((reversed_n << @as(u6, @intCast(count))) & ((@as(usize, @intCast(1)) << @as(u6, @intCast(bits))) - 1));
     }
-    pub fn fft_rec(buf: []Complex, n: usize, step: usize) void {
-        if (n >= 1) {
-            return;
-        }
-
-        fft_rec(buf, n / 2, 2 * step);
-        fft_rec(buf[step..], n / 2, 2 * step);
-
-        for (0..n / 2) |k| {
-            const term: f32 = -2 * std.math.pi * @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(n));
-            const exp: Complex = Complex.init(std.math.cos(term), std.math.sin(term)).mul(buf[k + n / 2]);
-            const p: Complex = Complex.init(buf[k].re, buf[k].im);
-            buf[k] = p.add(exp);
-            buf[k + n / 2] = p.sub(exp);
-        }
+    fn is_pow_2(x: usize) bool {
+        return (x != 0) and ((x & (x - 1)) == 0);
     }
-    pub fn fft(buf: []Complex) void {
+    pub fn fft(buf: []Complex) Error!void {
+        if (!is_pow_2(buf.len)) return Error.FFTPow2;
         const bits: usize = std.math.log(usize, 2, buf.len);
-        std.debug.print("bits len {d} {d}\n", .{ bits, buf.len });
         for (1..buf.len) |i| {
             const indx = fft_bit_reverse(i, bits);
             if (indx <= i) continue;
@@ -344,15 +329,22 @@ pub const ImageCore = struct {
             buf_len = std.math.pow(usize, 2, bits);
         }
         var fft_buf: []Complex = try self.allocator.alloc(Complex, buf_len);
-        for (0..fft_buf.len) |i| {
-            if (i < self.data.len) {
-                fft_buf[i] = Complex.init(@floatFromInt(self.data[i].v[0]), 0);
-            } else {
-                fft_buf[i] = Complex.init(0, 0);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const indx = i * self.width + j;
+                //centers fft
+                fft_buf[indx] = Complex.init(@as(f32, @floatFromInt(self.data[indx].v[0])) * std.math.pow(
+                    f32,
+                    -1,
+                    @floatFromInt(i + j),
+                ), 0);
             }
         }
+        for (self.data.len..fft_buf.len) |i| {
+            fft_buf[i] = Complex.init(0, 0);
+        }
         self.allocator.free(gray_data);
-        fft(fft_buf);
+        try fft(fft_buf);
         var data_copy = try self.allocator.dupe(Pixel, self.data);
         var max_mag: f32 = fft_buf[0].magnitude();
         for (1..data_copy.len) |i| {
@@ -1130,17 +1122,7 @@ pub fn Mat(comptime S: comptime_int) type {
 }
 
 test "FFT" {
-    // var buf: [8]ImageCore.Complex = [8]ImageCore.Complex{
-    //     ImageCore.Complex.init(1.0, 0),
-    //     ImageCore.Complex.init(1.0, 0),
-    //     ImageCore.Complex.init(1.0, 0),
-    //     ImageCore.Complex.init(1.0, 0),
-    //     ImageCore.Complex.init(0.0, 0),
-    //     ImageCore.Complex.init(0.0, 0),
-    //     ImageCore.Complex.init(0.0, 0),
-    //     ImageCore.Complex.init(0.0, 0),
-    // };
-    var out: [8]ImageCore.Complex = [8]ImageCore.Complex{
+    var buf: [8]ImageCore.Complex = [8]ImageCore.Complex{
         ImageCore.Complex.init(1.0, 0),
         ImageCore.Complex.init(1.0, 0),
         ImageCore.Complex.init(1.0, 0),
@@ -1150,12 +1132,9 @@ test "FFT" {
         ImageCore.Complex.init(0.0, 0),
         ImageCore.Complex.init(0.0, 0),
     };
-    // std.debug.print("FFT in {any}\n", .{buf});
-    // ImageCore.fft_rec(&buf, buf.len, 1);
-    // std.debug.print("FFT out {any}\n", .{buf});
-    std.debug.print("FFT in {any}\n", .{out});
-    ImageCore.fft(&out);
-    std.debug.print("FFT out {any}\n", .{out});
+    std.log.debug("FFT in {any}\n", .{buf});
+    try ImageCore.fft(&buf);
+    std.log.debug("FFT out {any}\n", .{buf});
 }
 
 test "MATRIX" {
