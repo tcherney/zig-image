@@ -276,84 +276,97 @@ pub const ImageCore = struct {
         const edge_detect_mat = try ConvolMat.edge_detection();
         return try self.convol(edge_detect_mat);
     }
-    pub const Complex = struct {
-        re: f32 = 0,
-        im: f32 = 0,
-        pub fn init(re: f32, im: f32) Complex {
-            return Complex{
-                .re = re,
-                .im = im,
-            };
+    pub const Complex = std.math.complex.Complex(f32);
+    //TODO convert to zig https://github.com/alokbakshi/FFT/blob/master/fft_rec.c https://alokbakshi.github.io/fft-1 https://ejectamenta.com/imaging-experiments/fourifier/ https://homepages.inf.ed.ac.uk/rbf/HIPR2/fourier.htm https://rosettacode.org/wiki/Fast_Fourier_transform
+    //TODO try using c# rosetta version
+    pub fn fft_bit_reverse(n: usize, bits: usize) usize {
+        var reversed_n: usize = n;
+        var count: usize = bits - 1;
+        var n_cpy: isize = @bitCast(n);
+        n_cpy >>= 1;
+        while (n_cpy > 0) {
+            reversed_n = (reversed_n << 1) | (@as(usize, @bitCast(n_cpy)) & 1);
+            count -= 1;
+            n_cpy >>= 1;
         }
-        pub fn add(self: *const Complex, other: Complex) Complex {
-            return Complex{
-                .re = self.re + other.re,
-                .im = self.im + other.im,
-            };
+        return ((reversed_n << @as(u6, @intCast(count))) & ((@as(usize, @intCast(1)) << @as(u6, @intCast(bits))) - 1));
+    }
+    pub fn fft_rec(buf: []Complex, n: usize, step: usize) void {
+        if (n >= 1) {
+            return;
         }
-        pub fn sub(self: *const Complex, other: Complex) Complex {
-            return Complex{
-                .re = self.re - other.re,
-                .im = self.im - other.im,
-            };
+
+        fft_rec(buf, n / 2, 2 * step);
+        fft_rec(buf[step..], n / 2, 2 * step);
+
+        for (0..n / 2) |k| {
+            const term: f32 = -2 * std.math.pi * @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(n));
+            const exp: Complex = Complex.init(std.math.cos(term), std.math.sin(term)).mul(buf[k + n / 2]);
+            const p: Complex = Complex.init(buf[k].re, buf[k].im);
+            buf[k] = p.add(exp);
+            buf[k + n / 2] = p.sub(exp);
         }
-        pub fn mul(self: *const Complex, other: Complex) Complex {
-            return Complex{
-                .re = self.re * other.re - self.im * other.im,
-                .im = self.im * other.re + self.re * other.im,
-            };
+    }
+    pub fn fft(buf: []Complex) void {
+        const bits: usize = std.math.log(usize, 2, buf.len);
+        std.debug.print("bits len {d} {d}\n", .{ bits, buf.len });
+        for (1..buf.len) |i| {
+            const indx = fft_bit_reverse(i, bits);
+            if (indx <= i) continue;
+            const temp = buf[i];
+            buf[i] = buf[indx];
+            buf[indx] = temp;
         }
-        pub fn div(self: *const Complex, other: Complex) Complex {
-            const re_num = self.re * other.re + self.im * other.im;
-            const im_num = self.im * other.re - self.re * other.im;
-            const den = other.re * other.re + other.im * other.im;
-            return Complex{
-                .re = re_num / den,
-                .im = im_num / den,
-            };
-        }
-        pub fn mag(self: *const Complex) f32 {
-            return @sqrt(self.re * self.re + self.im * self.im);
-        }
-    };
-    //TODO convert to zig https://github.com/alokbakshi/FFT/blob/master/fft_rec.c https://alokbakshi.github.io/fft-1 https://ejectamenta.com/imaging-experiments/fourifier/
-    pub fn fft(buf: []Complex, in: []Complex, n: usize, step: usize) void {
-        if (step < n) {
-            fft(in, buf, n / 2, step * 2);
-            fft(in[step..], buf[step..], n / 2, step * 2);
+        var N: usize = 2;
+        while (N <= buf.len) : (N <<= 1) {
             var i: usize = 0;
-            while (i < n) : (i += 2 * step) {
-                const t: Complex = Complex.init(0, @exp(std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(n)))).mul(in[i + step]);
-                buf[i / 2] = in[i].add(t);
-                buf[(i + n) / 2] = in[i].sub(t);
+            while (i < buf.len) : (i += N) {
+                for (0..(N / 2)) |k| {
+                    const even_indx = i + k;
+                    const odd_indx = i + k + (N / 2);
+                    const even = Complex.init(buf[even_indx].re, buf[even_indx].im);
+                    const odd = Complex.init(buf[odd_indx].re, buf[odd_indx].im);
+                    const term: f32 = -2 * std.math.pi * @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(N));
+                    const exp: Complex = Complex.init(std.math.cos(term), std.math.sin(term)).mul(odd);
+                    buf[even_indx] = even.add(exp);
+                    buf[odd_indx] = even.sub(exp);
+                }
             }
         }
     }
 
     pub fn fft_rep(self: *const Self) Error![]Pixel {
         const gray_data = try self.grayscale();
-        var fft_buf: []Complex = try self.allocator.alloc(Complex, self.data.len);
+        const bits: usize = @intFromFloat(@ceil(std.math.log(f32, 2, @floatFromInt(self.data.len))));
+        const size_pow = std.math.log(usize, 2, self.data.len);
+        var buf_len: usize = self.data.len;
+        if (bits != size_pow) {
+            buf_len = std.math.pow(usize, 2, bits);
+        }
+        var fft_buf: []Complex = try self.allocator.alloc(Complex, buf_len);
         for (0..fft_buf.len) |i| {
-            fft_buf[i] = Complex.init(@floatFromInt(self.data[i].v[0]), 0);
+            if (i < self.data.len) {
+                fft_buf[i] = Complex.init(@floatFromInt(self.data[i].v[0]), 0);
+            } else {
+                fft_buf[i] = Complex.init(0, 0);
+            }
         }
         self.allocator.free(gray_data);
-        const fft_in = try self.allocator.dupe(Complex, fft_buf);
-        fft(fft_buf, fft_in, fft_buf.len, 1);
+        fft(fft_buf);
         var data_copy = try self.allocator.dupe(Pixel, self.data);
-        var max_mag: f32 = fft_buf[0].mag();
-        for (1..fft_buf.len) |i| {
-            max_mag = @max(fft_buf[i].mag(), max_mag);
+        var max_mag: f32 = fft_buf[0].magnitude();
+        for (1..data_copy.len) |i| {
+            max_mag = @max(fft_buf[i].magnitude(), max_mag);
         }
         const c = 255.0 / (@log(1 + @abs(max_mag)));
         for (0..data_copy.len) |i| {
-            const mag = c * @log(1 + @abs(fft_buf[i].mag()));
+            const mag = c * @log(1 + @abs(fft_buf[i].magnitude()));
             const fft_val: u8 = if (mag > 255) 255 else if (mag < 0) 0 else @as(u8, @intFromFloat(mag));
             for (0..3) |j| {
                 data_copy[i].v[j] = fft_val;
             }
         }
         self.allocator.free(fft_buf);
-        self.allocator.free(fft_in);
         return data_copy;
     }
     pub fn convol(self: *const Self, kernel: ConvolMat) Error![]Pixel {
@@ -1114,6 +1127,35 @@ pub fn Mat(comptime S: comptime_int) type {
             return res;
         }
     };
+}
+
+test "FFT" {
+    // var buf: [8]ImageCore.Complex = [8]ImageCore.Complex{
+    //     ImageCore.Complex.init(1.0, 0),
+    //     ImageCore.Complex.init(1.0, 0),
+    //     ImageCore.Complex.init(1.0, 0),
+    //     ImageCore.Complex.init(1.0, 0),
+    //     ImageCore.Complex.init(0.0, 0),
+    //     ImageCore.Complex.init(0.0, 0),
+    //     ImageCore.Complex.init(0.0, 0),
+    //     ImageCore.Complex.init(0.0, 0),
+    // };
+    var out: [8]ImageCore.Complex = [8]ImageCore.Complex{
+        ImageCore.Complex.init(1.0, 0),
+        ImageCore.Complex.init(1.0, 0),
+        ImageCore.Complex.init(1.0, 0),
+        ImageCore.Complex.init(1.0, 0),
+        ImageCore.Complex.init(0.0, 0),
+        ImageCore.Complex.init(0.0, 0),
+        ImageCore.Complex.init(0.0, 0),
+        ImageCore.Complex.init(0.0, 0),
+    };
+    // std.debug.print("FFT in {any}\n", .{buf});
+    // ImageCore.fft_rec(&buf, buf.len, 1);
+    // std.debug.print("FFT out {any}\n", .{buf});
+    std.debug.print("FFT in {any}\n", .{out});
+    ImageCore.fft(&out);
+    std.debug.print("FFT out {any}\n", .{out});
 }
 
 test "MATRIX" {
