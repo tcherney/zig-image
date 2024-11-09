@@ -797,6 +797,19 @@ test "FFT REP" {
     }
 }
 
+test "BASIC FFT REP" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/basic/basn4a08.png", allocator);
+    try image.fft_rep();
+    try image.write_BMP("test_output/basic_fft.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
 test "BASIC 8 EDGE DETECTION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();

@@ -276,7 +276,8 @@ pub const ImageCore = struct {
         const edge_detect_mat = try ConvolMat.edge_detection();
         return try self.convol(edge_detect_mat);
     }
-    pub const Complex = std.math.complex.Complex(f32);
+    //TODO IFFT https://rosettacode.org/wiki/Fast_Fourier_transform to facilitate transformations in the frequency space
+    pub const Complex = std.math.complex.Complex(f64);
     pub fn fft_bit_reverse(n: usize, bits: usize) usize {
         var reversed_n: usize = n;
         var count: usize = bits - 1;
@@ -291,6 +292,20 @@ pub const ImageCore = struct {
     }
     fn is_pow_2(x: usize) bool {
         return (x != 0) and ((x & (x - 1)) == 0);
+    }
+    pub fn ifft(buf: []Complex) Error!void {
+        if (!is_pow_2(buf.len)) return Error.FFTPow2;
+        for (0..buf.len) |i| {
+            if (buf[i].im != 0) buf[i].im = -buf[i].im;
+        }
+        std.debug.print("after conj {any}\n", .{buf});
+        try fft(buf);
+        std.debug.print("after fft {any}\n", .{buf});
+        for (0..buf.len) |i| {
+            buf[i].im = -buf[i].im;
+            buf[i].re /= @floatFromInt(buf.len);
+            buf[i].im /= @floatFromInt(buf.len);
+        }
     }
     pub fn fft(buf: []Complex) Error!void {
         if (!is_pow_2(buf.len)) return Error.FFTPow2;
@@ -311,8 +326,8 @@ pub const ImageCore = struct {
                     const odd_indx = i + k + (N / 2);
                     const even = Complex.init(buf[even_indx].re, buf[even_indx].im);
                     const odd = Complex.init(buf[odd_indx].re, buf[odd_indx].im);
-                    const term: f32 = -2 * std.math.pi * @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(N));
-                    const exp: Complex = Complex.init(std.math.cos(term), std.math.sin(term)).mul(odd);
+                    const term: f64 = -2 * std.math.pi * @as(f64, @floatFromInt(k)) / @as(f64, @floatFromInt(N));
+                    const exp: Complex = std.math.complex.exp(Complex.init(0, term)).mul(odd);
                     buf[even_indx] = even.add(exp);
                     buf[odd_indx] = even.sub(exp);
                 }
@@ -322,7 +337,7 @@ pub const ImageCore = struct {
 
     pub fn fft_rep(self: *const Self) Error![]Pixel {
         const gray_data = try self.grayscale();
-        const bits: usize = @intFromFloat(@ceil(std.math.log(f32, 2, @floatFromInt(self.data.len))));
+        const bits: usize = @intFromFloat(@ceil(std.math.log(f64, 2, @floatFromInt(self.data.len))));
         const size_pow = std.math.log(usize, 2, self.data.len);
         var buf_len: usize = self.data.len;
         if (bits != size_pow) {
@@ -333,8 +348,8 @@ pub const ImageCore = struct {
             for (0..self.width) |j| {
                 const indx = i * self.width + j;
                 //centers fft
-                fft_buf[indx] = Complex.init(@as(f32, @floatFromInt(self.data[indx].v[0])) * std.math.pow(
-                    f32,
+                fft_buf[indx] = Complex.init(@as(f64, @floatFromInt(self.data[indx].v[0])) * std.math.pow(
+                    f64,
                     -1,
                     @floatFromInt(i + j),
                 ), 0);
@@ -346,7 +361,7 @@ pub const ImageCore = struct {
         self.allocator.free(gray_data);
         try fft(fft_buf);
         var data_copy = try self.allocator.dupe(Pixel, self.data);
-        var max_mag: f32 = fft_buf[0].magnitude();
+        var max_mag: f64 = fft_buf[0].magnitude();
         for (1..data_copy.len) |i| {
             max_mag = @max(fft_buf[i].magnitude(), max_mag);
         }
@@ -1132,9 +1147,11 @@ test "FFT" {
         ImageCore.Complex.init(0.0, 0),
         ImageCore.Complex.init(0.0, 0),
     };
-    std.log.debug("FFT in {any}\n", .{buf});
+    std.log.warn("FFT in {any}\n", .{buf});
     try ImageCore.fft(&buf);
-    std.log.debug("FFT out {any}\n", .{buf});
+    std.log.warn("FFT out {any}\n", .{buf});
+    try ImageCore.ifft(&buf);
+    std.log.warn("iFFT out {any}\n", .{buf});
 }
 
 test "MATRIX" {
