@@ -723,6 +723,18 @@ pub const PNGImage = struct {
         }
     }
 
+    pub fn histogram_equalization(self: *PNGImage) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().histogram_equalization();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn edge_detection(self: *PNGImage) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().edge_detection();
@@ -788,6 +800,19 @@ test "BASIC 8" {
     }
 }
 
+test "HISTOGRAM EQUALIZATION" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = PNGImage{};
+    try image.load("tests/png/shield.png", allocator);
+    try image.histogram_equalization();
+    try image.write_BMP("test_output/shield_equalization.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        PNG_LOG.warn("Leaked!\n", .{});
+    }
+}
+
 test "FFT REP" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -814,13 +839,13 @@ test "BASIC FFT REP" {
     }
 }
 
-test "BASIC 8 EDGE DETECTION" {
+test "SHIELD EDGE DETECTION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     var image = PNGImage{};
-    try image.load("tests/png/basic/basn2c08.png", allocator);
+    try image.load("tests/png/shield.png", allocator);
     try image.edge_detection();
-    try image.write_BMP("test_output/basic_edge_detection.bmp");
+    try image.write_BMP("test_output/shield_edge_detection.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         PNG_LOG.warn("Leaked!\n", .{});

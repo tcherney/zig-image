@@ -273,11 +273,64 @@ pub const ImageCore = struct {
         return data_copy;
     }
     //TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
+    pub fn histogram_equalization(self: *const Self) Error![]Pixel {
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
+        const num_channels = 3;
+        var channel_cdf: [num_channels][256]f64 = undefined;
+        for (0..num_channels) |i| {
+            const histo = self.histogram(0);
+            const cdf = gen_cdf(histo);
+            channel_cdf[i] = self.normalize_hist(cdf);
+            //std.debug.print("channel_cdf {any}\n", .{channel_cdf[i]});
+        }
+
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const indx = i * self.width + j;
+                for (0..num_channels) |k| {
+                    const pix_val = self.data[indx].v[k];
+                    //std.debug.print("cdf val, ceil, -1 {d}, {d}, {d}\n", .{ channel_cdf[k][pix_val], @ceil(channel_cdf[k][pix_val] * 256.0), @ceil(channel_cdf[k][pix_val] * 256.0) - 1 });
+                    var equal_comp: f64 = @ceil(channel_cdf[k][pix_val] * 256.0) - 1;
+                    if (equal_comp < 0) equal_comp = 0;
+                    data_copy[indx].v[k] = @as(u8, @intFromFloat(equal_comp));
+                }
+            }
+        }
+        return data_copy;
+    }
+    fn normalize_hist(self: *const Self, histo: [256]u32) [256]f64 {
+        var ret: [256]f64 = undefined;
+        for (0..histo.len) |i| {
+            ret[i] = @as(f64, @floatFromInt(histo[i])) / @as(f64, @floatFromInt(self.data.len));
+        }
+        return ret;
+    }
+    fn gen_cdf(histo: [256]u32) [256]u32 {
+        var ret: [256]u32 = [_]u32{0} ** 256;
+        var sum: u32 = 0;
+        for (0..ret.len) |i| {
+            sum += histo[i];
+            ret[i] = sum;
+        }
+        return ret;
+    }
+    fn histogram(self: *const Self, channel: usize) [256]u32 {
+        var ret: [256]u32 = undefined;
+        for (0..ret.len) |i| {
+            ret[i] = 0;
+        }
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                ret[self.data[i * self.width + j].v[channel]] += 1;
+            }
+        }
+        return ret;
+    }
+
     pub fn edge_detection(self: *const Self) Error![]Pixel {
         const edge_detect_mat = try ConvolMat.edge_detection();
         return try self.convol(edge_detect_mat);
     }
-    //TODO expose way to use fft -> tranformation -> ifft
     pub const Complex = std.math.complex.Complex(f64);
     pub fn fft_convol(self: *const Self, kernel: ConvolMat) Error![]Pixel {
         const bits: usize = @intFromFloat(@ceil(std.math.log(f64, 2, @floatFromInt(self.data.len))));

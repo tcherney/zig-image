@@ -138,6 +138,18 @@ pub const BMPImage = struct {
         }
     }
 
+    pub fn histogram_equalization(self: *BMPImage) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().histogram_equalization();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn fft_rep(self: *BMPImage) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().fft_rep();
@@ -405,6 +417,18 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("test_output/os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "HISTOGRAM EQUALIZATION" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.histogram_equalization();
+    try image.write_BMP("test_output/cat_histogram_equal_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});

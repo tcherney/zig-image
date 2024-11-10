@@ -1229,6 +1229,18 @@ pub const JPEGImage = struct {
         }
     }
 
+    pub fn histogram_equalization(self: *JPEGImage) Error!void {
+        if (self.loaded) {
+            const data_copy = try self.image_core().histogram_equalization();
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn shear(self: *JPEGImage, c_x: f64, c_y: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
@@ -1292,6 +1304,19 @@ test "CAT" {
     image.deinit();
     if (gpa.deinit() == .leak) {
         JPEG_LOG.info("Leaked!\n", .{});
+    }
+}
+
+test "HISTOGRAM EQUALIZATION" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = JPEGImage{};
+    try image.load("tests/jpeg/cat.jpg", allocator);
+    try image.histogram_equalization();
+    try image.write_BMP("test_output/cat_histogram_equal_jpeg.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        JPEG_LOG.warn("Leaked!\n", .{});
     }
 }
 
