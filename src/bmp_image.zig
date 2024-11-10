@@ -14,6 +14,7 @@ pub const BMPImage = struct {
     dib_file_header: BMPDIBHeader = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
+    grayscale: bool = false,
     pub const Error = error{
         NotLoaded,
         InvalidBMPHeader,
@@ -95,6 +96,7 @@ pub const BMPImage = struct {
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
             }
+            self.grayscale = true;
         } else {
             return Error.NotLoaded;
         }
@@ -113,6 +115,20 @@ pub const BMPImage = struct {
     pub fn convol(self: *BMPImage, kernel: ConvolMat) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().convol(kernel);
+            defer self.allocator.free(data_copy);
+            for (0..self.data.items.len) |i| {
+                self.data.items[i].v = data_copy[i].v;
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
+    pub fn fft_convol(self: *BMPImage, kernel: ConvolMat) Error!void {
+        if (self.loaded) {
+            var core = self.image_core();
+            core.is_grayscale = self.grayscale;
+            const data_copy = try core.fft_convol(kernel);
             defer self.allocator.free(data_copy);
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
@@ -144,7 +160,7 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
-    pub fn shear(self: *BMPImage, c_x: f32, c_y: f32) Error!void {
+    pub fn shear(self: *BMPImage, c_x: f64, c_y: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.shear(c_x, c_y);
@@ -160,7 +176,7 @@ pub const BMPImage = struct {
             return Error.NotLoaded;
         }
     }
-    pub fn rotate(self: *BMPImage, degrees: f32) Error!void {
+    pub fn rotate(self: *BMPImage, degrees: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.rotate(degrees);
@@ -389,6 +405,18 @@ test "CAT" {
     var image = BMPImage{};
     try image.load("tests/bmp/cat.bmp", allocator);
     try image.write_BMP("test_output/os.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        BMP_LOG.warn("Leaked!\n", .{});
+    }
+}
+test "FFT CONVOL" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = BMPImage{};
+    try image.load("tests/bmp/cat.bmp", allocator);
+    try image.fft_convol(try ConvolMat.edge_detection());
+    try image.write_BMP("test_output/cat_fft_edge_detection_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         BMP_LOG.warn("Leaked!\n", .{});

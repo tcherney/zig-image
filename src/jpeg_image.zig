@@ -74,20 +74,20 @@ const JPEG_HEADERS = enum(u8) {
 };
 
 const IDCT_SCALING_FACTORS = struct {
-    const m0: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi);
-    const m1: f32 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
-    const m3: f32 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
-    const m5: f32 = 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
-    const m2: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) - 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
-    const m4: f32 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) + 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
-    const s0: f32 = std.math.cos(0.0 / 16.0 * std.math.pi) / std.math.sqrt(8.0);
-    const s1: f32 = std.math.cos(1.0 / 16.0 * std.math.pi) / 2.0;
-    const s2: f32 = std.math.cos(2.0 / 16.0 * std.math.pi) / 2.0;
-    const s3: f32 = std.math.cos(3.0 / 16.0 * std.math.pi) / 2.0;
-    const s4: f32 = std.math.cos(4.0 / 16.0 * std.math.pi) / 2.0;
-    const s5: f32 = std.math.cos(5.0 / 16.0 * std.math.pi) / 2.0;
-    const s6: f32 = std.math.cos(6.0 / 16.0 * std.math.pi) / 2.0;
-    const s7: f32 = std.math.cos(7.0 / 16.0 * std.math.pi) / 2.0;
+    const m0: f64 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi);
+    const m1: f64 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
+    const m3: f64 = 2.0 * std.math.cos(2.0 / 16.0 * 2.0 * std.math.pi);
+    const m5: f64 = 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
+    const m2: f64 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) - 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
+    const m4: f64 = 2.0 * std.math.cos(1.0 / 16.0 * 2.0 * std.math.pi) + 2.0 * std.math.cos(3.0 / 16.0 * 2.0 * std.math.pi);
+    const s0: f64 = std.math.cos(0.0 / 16.0 * std.math.pi) / std.math.sqrt(8.0);
+    const s1: f64 = std.math.cos(1.0 / 16.0 * std.math.pi) / 2.0;
+    const s2: f64 = std.math.cos(2.0 / 16.0 * std.math.pi) / 2.0;
+    const s3: f64 = std.math.cos(3.0 / 16.0 * std.math.pi) / 2.0;
+    const s4: f64 = std.math.cos(4.0 / 16.0 * std.math.pi) / 2.0;
+    const s5: f64 = std.math.cos(5.0 / 16.0 * std.math.pi) / 2.0;
+    const s6: f64 = std.math.cos(6.0 / 16.0 * std.math.pi) / 2.0;
+    const s7: f64 = std.math.cos(7.0 / 16.0 * std.math.pi) / 2.0;
 };
 
 const zig_zag_map: [64]u8 = [_]u8{
@@ -205,6 +205,7 @@ pub const JPEGImage = struct {
     block_width_real: u32 = 0,
     horizontal_sampling_factor: u32 = 1,
     vertical_sampling_factor: u32 = 1,
+    grayscale: bool = false,
     pub const Error = error{
         InvalidHeader,
         InvalidDQTID,
@@ -898,64 +899,64 @@ pub const JPEGImage = struct {
     }
     // inverse dct based on AAN
     fn inverse_dct_component(_: *JPEGImage, block: *[64]i32) void {
-        var intermediate: [64]f32 = [_]f32{0} ** 64;
+        var intermediate: [64]f64 = [_]f64{0} ** 64;
         for (0..8) |i| {
-            const g0: f32 = @as(f32, @floatFromInt(block[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
-            const g1: f32 = @as(f32, @floatFromInt(block[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
-            const g2: f32 = @as(f32, @floatFromInt(block[2 * 8 + i])) * IDCT_SCALING_FACTORS.s2;
-            const g3: f32 = @as(f32, @floatFromInt(block[6 * 8 + i])) * IDCT_SCALING_FACTORS.s6;
-            const g4: f32 = @as(f32, @floatFromInt(block[5 * 8 + i])) * IDCT_SCALING_FACTORS.s5;
-            const g5: f32 = @as(f32, @floatFromInt(block[1 * 8 + i])) * IDCT_SCALING_FACTORS.s1;
-            const g6: f32 = @as(f32, @floatFromInt(block[7 * 8 + i])) * IDCT_SCALING_FACTORS.s7;
-            const g7: f32 = @as(f32, @floatFromInt(block[3 * 8 + i])) * IDCT_SCALING_FACTORS.s3;
+            const g0: f64 = @as(f64, @floatFromInt(block[0 * 8 + i])) * IDCT_SCALING_FACTORS.s0;
+            const g1: f64 = @as(f64, @floatFromInt(block[4 * 8 + i])) * IDCT_SCALING_FACTORS.s4;
+            const g2: f64 = @as(f64, @floatFromInt(block[2 * 8 + i])) * IDCT_SCALING_FACTORS.s2;
+            const g3: f64 = @as(f64, @floatFromInt(block[6 * 8 + i])) * IDCT_SCALING_FACTORS.s6;
+            const g4: f64 = @as(f64, @floatFromInt(block[5 * 8 + i])) * IDCT_SCALING_FACTORS.s5;
+            const g5: f64 = @as(f64, @floatFromInt(block[1 * 8 + i])) * IDCT_SCALING_FACTORS.s1;
+            const g6: f64 = @as(f64, @floatFromInt(block[7 * 8 + i])) * IDCT_SCALING_FACTORS.s7;
+            const g7: f64 = @as(f64, @floatFromInt(block[3 * 8 + i])) * IDCT_SCALING_FACTORS.s3;
 
-            const f0: f32 = g0;
-            const f1: f32 = g1;
-            const f2: f32 = g2;
-            const f3: f32 = g3;
-            const f4: f32 = g4 - g7;
-            const f5: f32 = g5 + g6;
-            const f6: f32 = g5 - g6;
-            const f7: f32 = g4 + g7;
+            const f0: f64 = g0;
+            const f1: f64 = g1;
+            const f2: f64 = g2;
+            const f3: f64 = g3;
+            const f4: f64 = g4 - g7;
+            const f5: f64 = g5 + g6;
+            const f6: f64 = g5 - g6;
+            const f7: f64 = g4 + g7;
 
-            const e0: f32 = f0;
-            const e1: f32 = f1;
-            const e2: f32 = f2 - f3;
-            const e3: f32 = f2 + f3;
-            const e4: f32 = f4;
-            const e5: f32 = f5 - f7;
-            const e6: f32 = f6;
-            const e7: f32 = f5 + f7;
-            const e8: f32 = f4 + f6;
+            const e0: f64 = f0;
+            const e1: f64 = f1;
+            const e2: f64 = f2 - f3;
+            const e3: f64 = f2 + f3;
+            const e4: f64 = f4;
+            const e5: f64 = f5 - f7;
+            const e6: f64 = f6;
+            const e7: f64 = f5 + f7;
+            const e8: f64 = f4 + f6;
 
-            const d0: f32 = e0;
-            const d1: f32 = e1;
-            const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
-            const d3: f32 = e3;
-            const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
-            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m3;
-            const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
-            const d7: f32 = e7;
-            const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
+            const d0: f64 = e0;
+            const d1: f64 = e1;
+            const d2: f64 = e2 * IDCT_SCALING_FACTORS.m1;
+            const d3: f64 = e3;
+            const d4: f64 = e4 * IDCT_SCALING_FACTORS.m2;
+            const d5: f64 = e5 * IDCT_SCALING_FACTORS.m3;
+            const d6: f64 = e6 * IDCT_SCALING_FACTORS.m4;
+            const d7: f64 = e7;
+            const d8: f64 = e8 * IDCT_SCALING_FACTORS.m5;
 
-            const c0: f32 = d0 + d1;
-            const c1: f32 = d0 - d1;
-            const c2: f32 = d2 - d3;
-            const c3: f32 = d3;
-            const c4: f32 = d4 + d8;
-            const c5: f32 = d5 + d7;
-            const c6: f32 = d6 - d8;
-            const c7: f32 = d7;
-            const c8: f32 = c5 - c6;
+            const c0: f64 = d0 + d1;
+            const c1: f64 = d0 - d1;
+            const c2: f64 = d2 - d3;
+            const c3: f64 = d3;
+            const c4: f64 = d4 + d8;
+            const c5: f64 = d5 + d7;
+            const c6: f64 = d6 - d8;
+            const c7: f64 = d7;
+            const c8: f64 = c5 - c6;
 
-            const b0: f32 = c0 + c3;
-            const b1: f32 = c1 + c2;
-            const b2: f32 = c1 - c2;
-            const b3: f32 = c0 - c3;
-            const b4: f32 = c4 - c8;
-            const b5: f32 = c8;
-            const b6: f32 = c6 - c7;
-            const b7: f32 = c7;
+            const b0: f64 = c0 + c3;
+            const b1: f64 = c1 + c2;
+            const b2: f64 = c1 - c2;
+            const b3: f64 = c0 - c3;
+            const b4: f64 = c4 - c8;
+            const b5: f64 = c8;
+            const b6: f64 = c6 - c7;
+            const b7: f64 = c7;
 
             intermediate[0 * 8 + i] = b0 + b7;
             intermediate[1 * 8 + i] = b1 + b6;
@@ -968,62 +969,62 @@ pub const JPEGImage = struct {
         }
 
         for (0..8) |i| {
-            const g0: f32 = intermediate[i * 8 + 0] * IDCT_SCALING_FACTORS.s0;
-            const g1: f32 = intermediate[i * 8 + 4] * IDCT_SCALING_FACTORS.s4;
-            const g2: f32 = intermediate[i * 8 + 2] * IDCT_SCALING_FACTORS.s2;
-            const g3: f32 = intermediate[i * 8 + 6] * IDCT_SCALING_FACTORS.s6;
-            const g4: f32 = intermediate[i * 8 + 5] * IDCT_SCALING_FACTORS.s5;
-            const g5: f32 = intermediate[i * 8 + 1] * IDCT_SCALING_FACTORS.s1;
-            const g6: f32 = intermediate[i * 8 + 7] * IDCT_SCALING_FACTORS.s7;
-            const g7: f32 = intermediate[i * 8 + 3] * IDCT_SCALING_FACTORS.s3;
+            const g0: f64 = intermediate[i * 8 + 0] * IDCT_SCALING_FACTORS.s0;
+            const g1: f64 = intermediate[i * 8 + 4] * IDCT_SCALING_FACTORS.s4;
+            const g2: f64 = intermediate[i * 8 + 2] * IDCT_SCALING_FACTORS.s2;
+            const g3: f64 = intermediate[i * 8 + 6] * IDCT_SCALING_FACTORS.s6;
+            const g4: f64 = intermediate[i * 8 + 5] * IDCT_SCALING_FACTORS.s5;
+            const g5: f64 = intermediate[i * 8 + 1] * IDCT_SCALING_FACTORS.s1;
+            const g6: f64 = intermediate[i * 8 + 7] * IDCT_SCALING_FACTORS.s7;
+            const g7: f64 = intermediate[i * 8 + 3] * IDCT_SCALING_FACTORS.s3;
 
-            const f0: f32 = g0;
-            const f1: f32 = g1;
-            const f2: f32 = g2;
-            const f3: f32 = g3;
-            const f4: f32 = g4 - g7;
-            const f5: f32 = g5 + g6;
-            const f6: f32 = g5 - g6;
-            const f7: f32 = g4 + g7;
+            const f0: f64 = g0;
+            const f1: f64 = g1;
+            const f2: f64 = g2;
+            const f3: f64 = g3;
+            const f4: f64 = g4 - g7;
+            const f5: f64 = g5 + g6;
+            const f6: f64 = g5 - g6;
+            const f7: f64 = g4 + g7;
 
-            const e0: f32 = f0;
-            const e1: f32 = f1;
-            const e2: f32 = f2 - f3;
-            const e3: f32 = f2 + f3;
-            const e4: f32 = f4;
-            const e5: f32 = f5 - f7;
-            const e6: f32 = f6;
-            const e7: f32 = f5 + f7;
-            const e8: f32 = f4 + f6;
+            const e0: f64 = f0;
+            const e1: f64 = f1;
+            const e2: f64 = f2 - f3;
+            const e3: f64 = f2 + f3;
+            const e4: f64 = f4;
+            const e5: f64 = f5 - f7;
+            const e6: f64 = f6;
+            const e7: f64 = f5 + f7;
+            const e8: f64 = f4 + f6;
 
-            const d0: f32 = e0;
-            const d1: f32 = e1;
-            const d2: f32 = e2 * IDCT_SCALING_FACTORS.m1;
-            const d3: f32 = e3;
-            const d4: f32 = e4 * IDCT_SCALING_FACTORS.m2;
-            const d5: f32 = e5 * IDCT_SCALING_FACTORS.m3;
-            const d6: f32 = e6 * IDCT_SCALING_FACTORS.m4;
-            const d7: f32 = e7;
-            const d8: f32 = e8 * IDCT_SCALING_FACTORS.m5;
+            const d0: f64 = e0;
+            const d1: f64 = e1;
+            const d2: f64 = e2 * IDCT_SCALING_FACTORS.m1;
+            const d3: f64 = e3;
+            const d4: f64 = e4 * IDCT_SCALING_FACTORS.m2;
+            const d5: f64 = e5 * IDCT_SCALING_FACTORS.m3;
+            const d6: f64 = e6 * IDCT_SCALING_FACTORS.m4;
+            const d7: f64 = e7;
+            const d8: f64 = e8 * IDCT_SCALING_FACTORS.m5;
 
-            const c0: f32 = d0 + d1;
-            const c1: f32 = d0 - d1;
-            const c2: f32 = d2 - d3;
-            const c3: f32 = d3;
-            const c4: f32 = d4 + d8;
-            const c5: f32 = d5 + d7;
-            const c6: f32 = d6 - d8;
-            const c7: f32 = d7;
-            const c8: f32 = c5 - c6;
+            const c0: f64 = d0 + d1;
+            const c1: f64 = d0 - d1;
+            const c2: f64 = d2 - d3;
+            const c3: f64 = d3;
+            const c4: f64 = d4 + d8;
+            const c5: f64 = d5 + d7;
+            const c6: f64 = d6 - d8;
+            const c7: f64 = d7;
+            const c8: f64 = c5 - c6;
 
-            const b0: f32 = c0 + c3;
-            const b1: f32 = c1 + c2;
-            const b2: f32 = c1 - c2;
-            const b3: f32 = c0 - c3;
-            const b4: f32 = c4 - c8;
-            const b5: f32 = c8;
-            const b6: f32 = c6 - c7;
-            const b7: f32 = c7;
+            const b0: f64 = c0 + c3;
+            const b1: f64 = c1 + c2;
+            const b2: f64 = c1 - c2;
+            const b3: f64 = c0 - c3;
+            const b4: f64 = c4 - c8;
+            const b5: f64 = c8;
+            const b6: f64 = c6 - c7;
+            const b7: f64 = c7;
 
             block[i * 8 + 0] = @as(i32, @intFromFloat(b0 + b7 + 0.5));
             block[i * 8 + 1] = @as(i32, @intFromFloat(b1 + b6 + 0.5));
@@ -1060,9 +1061,9 @@ pub const JPEGImage = struct {
                 const cbcr_pixel_row: usize = (y / self.vertical_sampling_factor) + 4 * v;
                 const cbcr_pixel_col: usize = (x / self.horizontal_sampling_factor) + 4 * h;
                 const cbcr_pixel = cbcr_pixel_row * 8 + cbcr_pixel_col;
-                var r: f32 = @as(f32, @floatFromInt(block.y[pixel])) + 1.402 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
-                var g: f32 = @as(f32, @floatFromInt(block.y[pixel])) - 0.344 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f32, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
-                var b: f32 = @as(f32, @floatFromInt(block.y[pixel])) + 1.722 * @as(f32, @floatFromInt(cbcr.cb[cbcr_pixel])) + 128.0;
+                var r: f64 = @as(f64, @floatFromInt(block.y[pixel])) + 1.402 * @as(f64, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var g: f64 = @as(f64, @floatFromInt(block.y[pixel])) - 0.344 * @as(f64, @floatFromInt(cbcr.cb[cbcr_pixel])) - 0.714 * @as(f64, @floatFromInt(cbcr.cr[cbcr_pixel])) + 128.0;
+                var b: f64 = @as(f64, @floatFromInt(block.y[pixel])) + 1.722 * @as(f64, @floatFromInt(cbcr.cb[cbcr_pixel])) + 128.0;
                 if (r < 0) {
                     r = 0;
                 }
@@ -1181,6 +1182,7 @@ pub const JPEGImage = struct {
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
             }
+            self.grayscale = true;
         } else {
             return Error.NotLoaded;
         }
@@ -1210,7 +1212,7 @@ pub const JPEGImage = struct {
         }
     }
 
-    pub fn rotate(self: *JPEGImage, degrees: f32) Error!void {
+    pub fn rotate(self: *JPEGImage, degrees: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.rotate(degrees);
@@ -1227,7 +1229,7 @@ pub const JPEGImage = struct {
         }
     }
 
-    pub fn shear(self: *JPEGImage, c_x: f32, c_y: f32) Error!void {
+    pub fn shear(self: *JPEGImage, c_x: f64, c_y: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.shear(c_x, c_y);

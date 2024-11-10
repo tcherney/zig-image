@@ -4,24 +4,24 @@ pub fn timer_start() std.time.Timer.Error!void {
     timer = try std.time.Timer.start();
 }
 
-inline fn gaussian_kernel(x: i32, y: i32, sigma: f32) f32 {
-    const coeff: f32 = 1.0 / (2.0 * std.math.pi * sigma * sigma);
-    const exponent: f32 = -(@as(f32, @floatFromInt(x)) * @as(f32, @floatFromInt(x)) + @as(f32, @floatFromInt(y)) * @as(f32, @floatFromInt(y))) / (2.0 * sigma * sigma);
+inline fn gaussian_kernel(x: i32, y: i32, sigma: f64) f64 {
+    const coeff: f64 = 1.0 / (2.0 * std.math.pi * sigma * sigma);
+    const exponent: f64 = -(@as(f64, @floatFromInt(x)) * @as(f64, @floatFromInt(x)) + @as(f64, @floatFromInt(y)) * @as(f64, @floatFromInt(y))) / (2.0 * sigma * sigma);
     return coeff * std.math.exp(exponent);
 }
 
-fn gaussian_kernel_2d(allocator: std.mem.Allocator, sigma: f32) std.mem.Allocator.Error![]f32 {
+fn gaussian_kernel_2d(allocator: std.mem.Allocator, sigma: f64) std.mem.Allocator.Error![]f64 {
     var kernel_size: u32 = @as(u32, @intFromFloat(@ceil(2 * sigma + 1)));
     if (kernel_size % 2 == 0) {
         kernel_size += 1;
     }
-    var kernel_2d: []f32 = try allocator.alloc(f32, kernel_size * kernel_size);
-    var sum: f32 = 0.0;
+    var kernel_2d: []f64 = try allocator.alloc(f64, kernel_size * kernel_size);
+    var sum: f64 = 0.0;
     for (0..kernel_size) |i| {
         for (0..kernel_size) |j| {
             const x: i32 = @as(i32, @intCast(@as(i64, @bitCast(j)))) - @divFloor(@as(i32, @bitCast(kernel_size)), 2);
             const y: i32 = @as(i32, @intCast(@as(i64, @bitCast(i)))) - @divFloor(@as(i32, @bitCast(kernel_size)), 2);
-            const val: f32 = gaussian_kernel(x, y, sigma);
+            const val: f64 = gaussian_kernel(x, y, sigma);
             kernel_2d[i * kernel_size + j] = val;
             sum += val;
         }
@@ -40,13 +40,14 @@ pub const ImageCore = struct {
     width: u32,
     data: []Pixel,
     allocator: std.mem.Allocator,
+    is_grayscale: bool = false,
     const Self = @This();
-    pub const Error = error{FFTPow2} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || Mat(3).Error;
+    pub const Error = error{FFTPow2} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || ConvolMat.Error;
     const BicubicPixel = struct {
-        r: f32 = 0,
-        g: f32 = 0,
-        b: f32 = 0,
-        a: f32 = 255,
+        r: f64 = 0,
+        g: f64 = 0,
+        b: f64 = 0,
+        a: f64 = 255,
         pub fn sub(self: *const BicubicPixel, other: BicubicPixel) BicubicPixel {
             return .{
                 .r = self.r - other.r,
@@ -63,7 +64,7 @@ pub const ImageCore = struct {
                 .a = self.a + other.a,
             };
         }
-        pub fn scale(self: *const BicubicPixel, scalar: f32) BicubicPixel {
+        pub fn scale(self: *const BicubicPixel, scalar: f64) BicubicPixel {
             return .{
                 .r = self.r * scalar,
                 .g = self.g * scalar,
@@ -82,16 +83,16 @@ pub const ImageCore = struct {
     }
     pub fn bilinear(self: *const Self, width: u32, height: u32) Error![]Pixel {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
-        const width_scale: f32 = @as(f32, @floatFromInt(self.width)) / @as(f32, @floatFromInt(width));
-        const height_scale: f32 = @as(f32, @floatFromInt(self.height)) / @as(f32, @floatFromInt(height));
+        const width_scale: f64 = @as(f64, @floatFromInt(self.width)) / @as(f64, @floatFromInt(width));
+        const height_scale: f64 = @as(f64, @floatFromInt(self.height)) / @as(f64, @floatFromInt(height));
         for (0..height) |y| {
             for (0..width) |x| {
-                const src_x: f32 = @as(f32, @floatFromInt(x)) * width_scale;
-                const src_y: f32 = @as(f32, @floatFromInt(y)) * height_scale;
-                const src_x_floor: f32 = @floor(src_x);
-                const src_x_ceil: f32 = @min(@as(f32, @floatFromInt(self.width)) - 1.0, @ceil(src_x));
-                const src_y_floor: f32 = @floor(src_y);
-                const src_y_ceil: f32 = @min(@as(f32, @floatFromInt(self.height)) - 1.0, @ceil(src_y));
+                const src_x: f64 = @as(f64, @floatFromInt(x)) * width_scale;
+                const src_y: f64 = @as(f64, @floatFromInt(y)) * height_scale;
+                const src_x_floor: f64 = @floor(src_x);
+                const src_x_ceil: f64 = @min(@as(f64, @floatFromInt(self.width)) - 1.0, @ceil(src_x));
+                const src_y_floor: f64 = @floor(src_y);
+                const src_y_ceil: f64 = @min(@as(f64, @floatFromInt(self.height)) - 1.0, @ceil(src_y));
                 const src_x_floor_indx: usize = @as(usize, @intFromFloat(src_x_floor));
                 const src_x_ceil_indx: usize = @as(usize, @intFromFloat(src_x_ceil));
                 const src_y_floor_indx: usize = @as(usize, @intFromFloat(src_y_floor));
@@ -105,17 +106,17 @@ pub const ImageCore = struct {
                 } else if (src_x_ceil == src_x_floor) {
                     const q1 = self.data[src_y_floor_indx * self.width + src_x_floor_indx];
                     const q2 = self.data[src_y_ceil_indx * self.width + src_x_floor_indx];
-                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_r())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_r())) * (src_y - src_y_floor)))));
-                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_g())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_g())) * (src_y - src_y_floor)))));
-                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_b())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_b())) * (src_y - src_y_floor)))));
-                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_a())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_a())) * (src_y - src_y_floor)))));
+                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_r())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_r())) * (src_y - src_y_floor)))));
+                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_g())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_g())) * (src_y - src_y_floor)))));
+                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_b())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_b())) * (src_y - src_y_floor)))));
+                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_a())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_a())) * (src_y - src_y_floor)))));
                 } else if (src_y_ceil == src_y_floor) {
                     const q1 = self.data[src_y_floor_indx * self.width + src_x_floor_indx];
                     const q2 = self.data[src_y_ceil_indx * self.width + src_x_ceil_indx];
-                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_r())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.get_r())) * (src_x - src_x_floor)))));
-                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_g())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.get_g())) * (src_x - src_x_floor)))));
-                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_b())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.get_b())) * (src_x - src_x_floor)))));
-                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_a())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(q2.get_a())) * (src_x - src_x_floor)))));
+                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_r())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(q2.get_r())) * (src_x - src_x_floor)))));
+                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_g())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(q2.get_g())) * (src_x - src_x_floor)))));
+                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_b())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(q2.get_b())) * (src_x - src_x_floor)))));
+                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_a())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(q2.get_a())) * (src_x - src_x_floor)))));
                 } else {
                     const v1 = self.data[src_y_floor_indx * self.width + src_x_floor_indx];
                     const v2 = self.data[src_y_floor_indx * self.width + src_x_ceil_indx];
@@ -123,21 +124,21 @@ pub const ImageCore = struct {
                     const v4 = self.data[src_y_ceil_indx * self.width + src_x_ceil_indx];
 
                     const q1 = Pixel.init(
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.get_r())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.get_r())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.get_g())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.get_g())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.get_b())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.get_b())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v1.get_a())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v2.get_a())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v1.get_r())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v2.get_r())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v1.get_g())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v2.get_g())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v1.get_b())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v2.get_b())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v1.get_a())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v2.get_a())) * (src_x - src_x_floor)))),
                     );
                     const q2 = Pixel.init(
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.get_r())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.get_r())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.get_g())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.get_g())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.get_b())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.get_b())) * (src_x - src_x_floor)))),
-                        @as(u8, @intFromFloat((@as(f32, @floatFromInt(v3.get_a())) * (src_x_ceil - src_x)) + (@as(f32, @floatFromInt(v4.get_a())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v3.get_r())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v4.get_r())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v3.get_g())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v4.get_g())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v3.get_b())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v4.get_b())) * (src_x - src_x_floor)))),
+                        @as(u8, @intFromFloat((@as(f64, @floatFromInt(v3.get_a())) * (src_x_ceil - src_x)) + (@as(f64, @floatFromInt(v4.get_a())) * (src_x - src_x_floor)))),
                     );
-                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_r())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_r())) * (src_y - src_y_floor)))));
-                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_g())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_g())) * (src_y - src_y_floor)))));
-                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_b())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_b())) * (src_y - src_y_floor)))));
-                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f32, @floatFromInt(q1.get_a())) * (src_y_ceil - src_y)) + (@as(f32, @floatFromInt(q2.get_a())) * (src_y - src_y_floor)))));
+                    new_pixel.set_r(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_r())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_r())) * (src_y - src_y_floor)))));
+                    new_pixel.set_g(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_g())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_g())) * (src_y - src_y_floor)))));
+                    new_pixel.set_b(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_b())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_b())) * (src_y - src_y_floor)))));
+                    new_pixel.set_a(@as(u8, @intFromFloat((@as(f64, @floatFromInt(q1.get_a())) * (src_y_ceil - src_y)) + (@as(f64, @floatFromInt(q2.get_a())) * (src_y - src_y_floor)))));
                 }
 
                 data_copy[y * width + x].v = new_pixel.v;
@@ -148,10 +149,10 @@ pub const ImageCore = struct {
     fn bicubic_get_pixel(self: *const Self, y: i64, x: i64) BicubicPixel {
         if (x < self.width and y < self.height and x > 0 and y > 0) {
             return BicubicPixel{
-                .r = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_r())),
-                .g = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_g())),
-                .b = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_b())),
-                .a = @as(f32, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_a())),
+                .r = @as(f64, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_r())),
+                .g = @as(f64, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_g())),
+                .b = @as(f64, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_b())),
+                .a = @as(f64, @floatFromInt(self.data[@as(usize, @bitCast(y)) * self.width + @as(usize, @bitCast(x))].get_a())),
             };
         } else {
             return BicubicPixel{};
@@ -159,18 +160,18 @@ pub const ImageCore = struct {
     }
     pub fn bicubic(self: *const Self, width: u32, height: u32) Error![]Pixel {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
-        const width_scale: f32 = @as(f32, @floatFromInt(self.width)) / @as(f32, @floatFromInt(width));
-        const height_scale: f32 = @as(f32, @floatFromInt(self.height)) / @as(f32, @floatFromInt(height));
+        const width_scale: f64 = @as(f64, @floatFromInt(self.width)) / @as(f64, @floatFromInt(width));
+        const height_scale: f64 = @as(f64, @floatFromInt(self.height)) / @as(f64, @floatFromInt(height));
         var C: [5]BicubicPixel = undefined;
         for (0..5) |i| {
             C[i] = BicubicPixel{};
         }
         for (0..height) |y| {
             for (0..width) |x| {
-                const src_x: i64 = @as(i64, @intFromFloat(@as(f32, @floatFromInt(x)) * width_scale));
-                const src_y: i64 = @as(i64, @intFromFloat(@as(f32, @floatFromInt(y)) * height_scale));
-                const dx: f32 = width_scale * @as(f32, @floatFromInt(x)) - @as(f32, @floatFromInt(src_x));
-                const dy: f32 = height_scale * @as(f32, @floatFromInt(y)) - @as(f32, @floatFromInt(src_y));
+                const src_x: i64 = @as(i64, @intFromFloat(@as(f64, @floatFromInt(x)) * width_scale));
+                const src_y: i64 = @as(i64, @intFromFloat(@as(f64, @floatFromInt(y)) * height_scale));
+                const dx: f64 = width_scale * @as(f64, @floatFromInt(x)) - @as(f64, @floatFromInt(src_x));
+                const dy: f64 = height_scale * @as(f64, @floatFromInt(y)) - @as(f64, @floatFromInt(src_y));
                 var new_pixel: BicubicPixel = BicubicPixel{};
                 for (0..4) |jj| {
                     const z: i64 = src_y + @as(i64, @bitCast(jj)) - 1;
@@ -220,7 +221,7 @@ pub const ImageCore = struct {
 
         return data_copy;
     }
-    pub fn gaussian_blur(self: *const Self, sigma: f32) Error![]Pixel {
+    pub fn gaussian_blur(self: *const Self, sigma: f64) Error![]Pixel {
         const kernel_2d = try gaussian_kernel_2d(self.allocator, sigma);
         defer self.allocator.free(kernel_2d);
         var kernel_size: u32 = @as(u32, @intFromFloat(@ceil(2 * sigma + 1)));
@@ -230,20 +231,20 @@ pub const ImageCore = struct {
         var data_copy: []Pixel = try self.allocator.alloc(Pixel, self.data.len);
         for (kernel_size / 2..self.height - kernel_size / 2) |y| {
             for (kernel_size / 2..self.width - kernel_size / 2) |x| {
-                var r: f32 = 0.0;
-                var g: f32 = 0.0;
-                var b: f32 = 0.0;
-                var a: f32 = 0.0;
+                var r: f64 = 0.0;
+                var g: f64 = 0.0;
+                var b: f64 = 0.0;
+                var a: f64 = 0.0;
                 for (0..kernel_size) |i| {
                     for (0..kernel_size) |j| {
                         var curr_pixel: Pixel = undefined;
 
                         curr_pixel = self.data[(y + i - kernel_size / 2) * self.width + (x + j - kernel_size / 2)];
 
-                        r += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.get_r()));
-                        g += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.get_g()));
-                        b += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.get_b()));
-                        a += kernel_2d[i * kernel_size + j] * @as(f32, @floatFromInt(curr_pixel.get_a()));
+                        r += kernel_2d[i * kernel_size + j] * @as(f64, @floatFromInt(curr_pixel.get_r()));
+                        g += kernel_2d[i * kernel_size + j] * @as(f64, @floatFromInt(curr_pixel.get_g()));
+                        b += kernel_2d[i * kernel_size + j] * @as(f64, @floatFromInt(curr_pixel.get_b()));
+                        a += kernel_2d[i * kernel_size + j] * @as(f64, @floatFromInt(curr_pixel.get_a()));
                     }
                 }
 
@@ -256,8 +257,8 @@ pub const ImageCore = struct {
         var data_copy = try self.allocator.alloc(Pixel, width * height);
         for (0..height) |y| {
             for (0..width) |x| {
-                const src_x: usize = @min(self.width - 1, @as(usize, @intFromFloat(@as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(width)) * @as(f32, @floatFromInt(self.width)))));
-                const src_y: usize = @min(self.height - 1, @as(usize, @intFromFloat(@as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(height)) * @as(f32, @floatFromInt(self.height)))));
+                const src_x: usize = @min(self.width - 1, @as(usize, @intFromFloat(@as(f64, @floatFromInt(x)) / @as(f64, @floatFromInt(width)) * @as(f64, @floatFromInt(self.width)))));
+                const src_y: usize = @min(self.height - 1, @as(usize, @intFromFloat(@as(f64, @floatFromInt(y)) / @as(f64, @floatFromInt(height)) * @as(f64, @floatFromInt(self.height)))));
                 data_copy[y * width + x].v = self.data[src_y * self.width + src_x].v;
             }
         }
@@ -266,7 +267,7 @@ pub const ImageCore = struct {
     pub fn grayscale(self: *const Self) Error![]Pixel {
         var data_copy = try self.allocator.dupe(Pixel, self.data);
         for (0..data_copy.len) |i| {
-            const gray: u8 = @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].get_r())) * 0.2989)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].get_g())) * 0.5870)) + @as(u8, @intFromFloat(@as(f32, @floatFromInt(data_copy[i].get_b())) * 0.1140));
+            const gray: u8 = @as(u8, @intFromFloat(@as(f64, @floatFromInt(data_copy[i].get_r())) * 0.2989)) + @as(u8, @intFromFloat(@as(f64, @floatFromInt(data_copy[i].get_g())) * 0.5870)) + @as(u8, @intFromFloat(@as(f64, @floatFromInt(data_copy[i].get_b())) * 0.1140));
             data_copy[i].v = .{ gray, gray, gray, data_copy[i].get_a() };
         }
         return data_copy;
@@ -276,8 +277,89 @@ pub const ImageCore = struct {
         const edge_detect_mat = try ConvolMat.edge_detection();
         return try self.convol(edge_detect_mat);
     }
-    //TODO IFFT https://rosettacode.org/wiki/Fast_Fourier_transform to facilitate transformations in the frequency space
+    //TODO expose way to use fft -> tranformation -> ifft
     pub const Complex = std.math.complex.Complex(f64);
+    pub fn fft_convol(self: *const Self, kernel: ConvolMat) Error![]Pixel {
+        const bits: usize = @intFromFloat(@ceil(std.math.log(f64, 2, @floatFromInt(self.data.len))));
+        const size_pow = std.math.log(usize, 2, self.data.len);
+        var buf_len: usize = self.data.len;
+        if (bits != size_pow) {
+            buf_len = std.math.pow(usize, 2, bits);
+        }
+        const num_channels: usize = if (self.is_grayscale) 1 else 3;
+        var fft_buf: [][]Complex = try self.allocator.alloc([]Complex, num_channels);
+        var fft_buf_copy: [][]Complex = try self.allocator.alloc([]Complex, num_channels);
+        for (0..num_channels) |c| {
+            fft_buf[c] = try self.allocator.alloc(Complex, buf_len);
+            fft_buf_copy[c] = try self.allocator.alloc(Complex, buf_len);
+        }
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const indx = i * self.width + j;
+                for (0..num_channels) |c| {
+                    fft_buf[c][indx] = Complex.init(@as(f64, @floatFromInt(self.data[indx].v[c])), 0);
+                    fft_buf_copy[c][indx] = Complex.init(@as(f64, @floatFromInt(self.data[indx].v[c])), 0);
+                }
+            }
+        }
+        for (0..num_channels) |j| {
+            for (self.data.len..fft_buf[j].len) |i| {
+                fft_buf[j][i] = Complex.init(0, 0);
+                fft_buf_copy[j][i] = Complex.init(0, 0);
+            }
+        }
+        // -> frequency space
+        for (0..num_channels) |c| {
+            try fft(fft_buf[c]);
+        }
+        // -> convol
+        var kernel_buf = try self.allocator.alloc(Complex, buf_len);
+        for (0..kernel.size) |i| {
+            for (0..kernel.size) |j| {
+                const indx = i * kernel.size + j;
+                kernel_buf[indx] = Complex.init(kernel.data[indx], 0);
+            }
+        }
+        for ((kernel.size * kernel.size)..kernel_buf.len) |i| {
+            kernel_buf[i] = Complex.init(0, 0);
+        }
+        try fft(kernel_buf);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                const indx: usize = (i * self.width + j);
+                for (0..num_channels) |c| {
+                    fft_buf_copy[c][indx] = fft_buf[c][indx].mul(kernel_buf[indx]);
+                }
+            }
+        }
+        for (0..num_channels) |j| {
+            for (self.data.len..fft_buf[j].len) |i| {
+                fft_buf_copy[j][i] = fft_buf[j][i].mul(kernel_buf[i]);
+            }
+        }
+        self.allocator.free(kernel_buf);
+        for (0..num_channels) |i| {
+            self.allocator.free(fft_buf[i]);
+        }
+        self.allocator.free(fft_buf);
+        // -> back to color space
+        for (0..num_channels) |c| {
+            try ifft(fft_buf_copy[c]);
+        }
+        var data_copy = try self.allocator.dupe(Pixel, self.data);
+        for (0..self.height) |i| {
+            for (0..self.width) |j| {
+                for (0..num_channels) |c| {
+                    data_copy[i * self.width + j].v[c] = if (fft_buf_copy[c][i * self.width + j].re > 255) 255 else if (fft_buf_copy[c][i * self.width + j].re < 0) 0 else @as(u8, @intFromFloat(fft_buf_copy[c][i * self.width + j].re));
+                }
+            }
+        }
+        for (0..num_channels) |i| {
+            self.allocator.free(fft_buf_copy[i]);
+        }
+        self.allocator.free(fft_buf_copy);
+        return data_copy;
+    }
     pub fn fft_bit_reverse(n: usize, bits: usize) usize {
         var reversed_n: usize = n;
         var count: usize = bits - 1;
@@ -298,9 +380,7 @@ pub const ImageCore = struct {
         for (0..buf.len) |i| {
             if (buf[i].im != 0) buf[i].im = -buf[i].im;
         }
-        std.debug.print("after conj {any}\n", .{buf});
         try fft(buf);
-        std.debug.print("after fft {any}\n", .{buf});
         for (0..buf.len) |i| {
             buf[i].im = -buf[i].im;
             buf[i].re /= @floatFromInt(buf.len);
@@ -383,7 +463,7 @@ pub const ImageCore = struct {
                 const indx: usize = (i * self.width + j);
                 if (i >= 1 and j >= 1 and i < self.height - 1 and j < self.width - 1) {
                     for (0..3) |c| {
-                        var sum: f32 = 0;
+                        var sum: f64 = 0;
                         for (0..3) |k| {
                             const float_vector: ConvolMat.Vec = .{ @floatFromInt(self.data[indx - self.width - 1 + k].v[c]), @floatFromInt(self.data[indx - 1 + k].v[c]), @floatFromInt(self.data[indx + self.width - 1 + k].v[c]) };
                             sum += @reduce(.Add, float_vector * kernel.row(k));
@@ -427,30 +507,30 @@ pub const ImageCore = struct {
         }
         return data_copy;
     }
-    fn rotate_slow(self: *Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
+    fn rotate_slow(self: *Self, degrees: f64) Error!struct { width: u32, height: u32, data: []Pixel } {
         const scale_factor = 4;
         var scaled_width = self.width * scale_factor;
         var scaled_height = self.height * scale_factor;
         var scaled_pixels = try self.bicubic(scaled_width, scaled_height);
-        const radians: f32 = std.math.degreesToRadians(degrees);
-        const shear13 = try Mat(3).shear(0, -@tan(radians / 2));
+        const radians: f64 = std.math.degreesToRadians(degrees);
+        const shear13 = try AffinePosMat.shear(0, -@tan(radians / 2));
         shear13.print();
-        const shear2 = try Mat(3).shear(@sin(radians), 0);
+        const shear2 = try AffinePosMat.shear(@sin(radians), 0);
         shear2.print();
         const rotate_mat = shear13.mul(shear2).mul(shear13);
         rotate_mat.print();
-        const Vec = Mat(3).Vec;
+        const Vec = AffinePosMat.Vec;
         var vectors: []Vec = try self.allocator.alloc(Vec, scaled_pixels.len);
         defer self.allocator.free(vectors);
-        var min_x: f32 = -@as(f32, @floatFromInt(scaled_width / 2));
-        var max_x: f32 = @as(f32, @floatFromInt(scaled_width / 2)) - 1;
-        var min_y: f32 = -@as(f32, @floatFromInt(scaled_height / 2));
-        var max_y: f32 = @as(f32, @floatFromInt(scaled_height / 2)) - 1;
-        var translate_mat = try Mat(3).translate(min_x, min_y);
+        var min_x: f64 = -@as(f64, @floatFromInt(scaled_width / 2));
+        var max_x: f64 = @as(f64, @floatFromInt(scaled_width / 2)) - 1;
+        var min_y: f64 = -@as(f64, @floatFromInt(scaled_height / 2));
+        var max_y: f64 = @as(f64, @floatFromInt(scaled_height / 2)) - 1;
+        var translate_mat = try AffinePosMat.translate(min_x, min_y);
         for (0..scaled_height) |i| {
             for (0..scaled_width) |j| {
-                //vectors[i * self.width + j] = shear13.mul_v(shear2.mul_v(shear13.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) }))));
-                vectors[i * scaled_width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
+                //vectors[i * self.width + j] = shear13.mul_v(shear2.mul_v(shear13.mul_v(try AffinePosMat.vectorize(.{ @as(f64, @floatFromInt(j)), @as(f64, @floatFromInt(i)) }))));
+                vectors[i * scaled_width + j] = rotate_mat.mul_v(translate_mat.mul_v(try AffinePosMat.vectorize(.{ @as(f64, @floatFromInt(j)), @as(f64, @floatFromInt(i)) })));
                 if (i == 0 and j == 0) {
                     min_x = vectors[0][0];
                     max_x = vectors[0][0];
@@ -465,7 +545,7 @@ pub const ImageCore = struct {
             }
         }
         //std.log.warn("pre translate {any}\n", .{vectors});
-        translate_mat = try Mat(3).translate(-min_x, -min_y);
+        translate_mat = try AffinePosMat.translate(-min_x, -min_y);
         for (0..scaled_height) |i| {
             for (0..scaled_width) |j| {
                 vectors[i * scaled_width + j] = translate_mat.mul_v(vectors[i * scaled_width + j]);
@@ -507,7 +587,7 @@ pub const ImageCore = struct {
         return .{ .width = scaled_width, .height = scaled_height, .data = scaled_pixels };
     }
 
-    fn inv_lerp_point(a_x: f32, a_y: f32, b_x: f32, b_y: f32, v_x: f32, v_y: f32) f32 {
+    fn inv_lerp_point(a_x: f64, a_y: f64, b_x: f64, b_y: f64, v_x: f64, v_y: f64) f64 {
         if (@abs(a_x - b_x) > @abs(a_y - b_y)) {
             return inv_lerp(a_x, b_x, v_x);
         } else {
@@ -515,45 +595,45 @@ pub const ImageCore = struct {
         }
     }
 
-    fn inv_lerp(a: f32, b: f32, v: f32) f32 {
+    fn inv_lerp(a: f64, b: f64, v: f64) f64 {
         return (v - a) / (b - a);
     }
 
-    fn distance(a_x: f32, a_y: f32, b_x: f32, b_y: f32) f32 {
+    fn distance(a_x: f64, a_y: f64, b_x: f64, b_y: f64) f64 {
         return @sqrt((a_x - b_x) * (a_x - b_x) + (a_y - b_y) * (a_y - b_y));
     }
 
-    pub fn rotate(self: *const Self, degrees: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
-        const radians: f32 = std.math.degreesToRadians(degrees);
-        var x_1 = -@as(f32, @floatFromInt(self.width / 2));
-        var y_1 = -@as(f32, @floatFromInt(self.height / 2));
-        var points: [4]struct { x: f32, y: f32 } = undefined;
+    pub fn rotate(self: *const Self, degrees: f64) Error!struct { width: u32, height: u32, data: []Pixel } {
+        const radians: f64 = std.math.degreesToRadians(degrees);
+        var x_1 = -@as(f64, @floatFromInt(self.width / 2));
+        var y_1 = -@as(f64, @floatFromInt(self.height / 2));
+        var points: [4]struct { x: f64, y: f64 } = undefined;
         points[0] = .{
             .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
             .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
         };
-        x_1 = -@as(f32, @floatFromInt(self.width / 2));
-        y_1 = @as(f32, @floatFromInt(self.height / 2));
+        x_1 = -@as(f64, @floatFromInt(self.width / 2));
+        y_1 = @as(f64, @floatFromInt(self.height / 2));
         points[1] = .{
             .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
             .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
         };
-        x_1 = @as(f32, @floatFromInt(self.width / 2));
-        y_1 = @as(f32, @floatFromInt(self.height / 2));
+        x_1 = @as(f64, @floatFromInt(self.width / 2));
+        y_1 = @as(f64, @floatFromInt(self.height / 2));
         points[2] = .{
             .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
             .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
         };
-        x_1 = @as(f32, @floatFromInt(self.width / 2));
-        y_1 = -@as(f32, @floatFromInt(self.height / 2));
+        x_1 = @as(f64, @floatFromInt(self.width / 2));
+        y_1 = -@as(f64, @floatFromInt(self.height / 2));
         points[3] = .{
             .x = std.math.cos(radians) * (x_1) - std.math.sin(radians) * (y_1),
             .y = std.math.sin(radians) * (x_1) + std.math.cos(radians) * (y_1),
         };
-        var min_x: f32 = points[0].x;
-        var max_x: f32 = points[0].x;
-        var min_y: f32 = points[0].y;
-        var max_y: f32 = points[0].y;
+        var min_x: f64 = points[0].x;
+        var max_x: f64 = points[0].x;
+        var min_y: f64 = points[0].y;
+        var max_y: f64 = points[0].y;
         for (1..points.len) |i| {
             min_x = @min(min_x, points[i].x);
             max_x = @max(max_x, points[i].x);
@@ -566,16 +646,16 @@ pub const ImageCore = struct {
         for (0..data_copy.len) |i| {
             data_copy[i] = Pixel{};
         }
-        var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
+        var vectors: []AffinePosMat.Vec = try self.allocator.alloc(AffinePosMat.Vec, width * height);
         defer self.allocator.free(vectors);
-        var translate_mat = try Mat(3).translate(-@as(f32, @floatFromInt((width - 1) / 2)), -@as(f32, @floatFromInt((height - 1) / 2)));
-        const rotate_mat = try Mat(3).rotate(.z, -degrees);
+        var translate_mat = try AffinePosMat.translate(-@as(f64, @floatFromInt((width - 1) / 2)), -@as(f64, @floatFromInt((height - 1) / 2)));
+        const rotate_mat = try AffinePosMat.rotate(.z, -degrees);
         for (0..height) |i| {
             for (0..width) |j| {
-                vectors[i * width + j] = rotate_mat.mul_v(translate_mat.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) })));
+                vectors[i * width + j] = rotate_mat.mul_v(translate_mat.mul_v(try AffinePosMat.vectorize(.{ @as(f64, @floatFromInt(j)), @as(f64, @floatFromInt(i)) })));
             }
         }
-        translate_mat = try Mat(3).translate(@as(f32, @floatFromInt((self.width - 1) / 2)), @as(f32, @floatFromInt((self.height - 1) / 2)));
+        translate_mat = try AffinePosMat.translate(@as(f64, @floatFromInt((self.width - 1) / 2)), @as(f64, @floatFromInt((self.height - 1) / 2)));
         for (0..height) |i| {
             for (0..width) |j| {
                 vectors[i * width + j] = translate_mat.mul_v(vectors[i * width + j]);
@@ -598,17 +678,17 @@ pub const ImageCore = struct {
                 if (ceil_y >= 0) max_y_overlap = @as(usize, @intFromFloat(ceil_y));
                 const x_per = vectors[i * width + j][0] - @floor(vectors[i * width + j][0]);
                 const y_per = vectors[i * width + j][1] - @floor(vectors[i * width + j][1]);
-                var average_pixel: struct { r: f32, g: f32, b: f32, a: f32 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-                var weight: f32 = 0;
+                var average_pixel: struct { r: f64, g: f64, b: f64, a: f64 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+                var weight: f64 = 0;
                 var indx: usize = 0;
                 if (floored_x >= 0 and floored_y >= 0) {
                     indx = min_y_overlap * self.width + min_x_overlap;
                     if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and min_x_overlap < self.width) {
                         const scale = ((1 - x_per) * (1 - y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -616,10 +696,10 @@ pub const ImageCore = struct {
                     indx = min_y_overlap * self.width + max_x_overlap;
                     if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and max_x_overlap < self.width) {
                         const scale = ((x_per) * (1 - y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -627,10 +707,10 @@ pub const ImageCore = struct {
                     indx = max_y_overlap * self.width + min_x_overlap;
                     if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and min_x_overlap < self.width) {
                         const scale = ((1 - x_per) * (y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -638,10 +718,10 @@ pub const ImageCore = struct {
                     indx = max_y_overlap * self.width + max_x_overlap;
                     if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and max_x_overlap < self.width) {
                         const scale = ((x_per) * (y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -655,32 +735,32 @@ pub const ImageCore = struct {
         }
         return .{ .width = width, .height = height, .data = data_copy };
     }
-    pub fn shear(self: *const Self, c_x: f32, c_y: f32) Error!struct { width: u32, height: u32, data: []Pixel } {
-        var corners: [4]Mat(3).Vec = undefined;
+    pub fn shear(self: *const Self, c_x: f64, c_y: f64) Error!struct { width: u32, height: u32, data: []Pixel } {
+        var corners: [4]AffinePosMat.Vec = undefined;
         corners[0] = .{ 0, 0, 1 };
         corners[1] = .{
             0,
-            @as(f32, @floatFromInt(self.height)) - 1,
+            @as(f64, @floatFromInt(self.height)) - 1,
             1,
         };
         corners[2] = .{
-            @as(f32, @floatFromInt(self.width)) - 1,
+            @as(f64, @floatFromInt(self.width)) - 1,
             0,
             1,
         };
         corners[3] = .{
-            @as(f32, @floatFromInt(self.width)) - 1,
-            @as(f32, @floatFromInt(self.height)) - 1,
+            @as(f64, @floatFromInt(self.width)) - 1,
+            @as(f64, @floatFromInt(self.height)) - 1,
             1,
         };
-        const shear_forward = try Mat(3).shear(c_x, c_y);
+        const shear_forward = try AffinePosMat.shear(c_x, c_y);
         for (0..4) |i| {
             corners[i] = shear_forward.mul_v(corners[i]);
         }
-        var min_x: f32 = corners[0][0];
-        var max_x: f32 = corners[0][0];
-        var min_y: f32 = corners[0][1];
-        var max_y: f32 = corners[0][1];
+        var min_x: f64 = corners[0][0];
+        var max_x: f64 = corners[0][0];
+        var min_y: f64 = corners[0][1];
+        var max_y: f64 = corners[0][1];
         for (1..4) |i| {
             min_x = @min(min_x, corners[i][0]);
             max_x = @max(max_x, corners[i][0]);
@@ -693,12 +773,12 @@ pub const ImageCore = struct {
         for (0..data_copy.len) |i| {
             data_copy[i] = Pixel{};
         }
-        var vectors: []Mat(3).Vec = try self.allocator.alloc(Mat(3).Vec, width * height);
+        var vectors: []AffinePosMat.Vec = try self.allocator.alloc(AffinePosMat.Vec, width * height);
         defer self.allocator.free(vectors);
-        const shear_reverse = try Mat(3).shear(-c_x, -c_y);
+        const shear_reverse = try AffinePosMat.shear(-c_x, -c_y);
         for (0..height) |i| {
             for (0..width) |j| {
-                vectors[i * width + j] = shear_reverse.mul_v(try Mat(3).vectorize(.{ @as(f32, @floatFromInt(j)), @as(f32, @floatFromInt(i)) }));
+                vectors[i * width + j] = shear_reverse.mul_v(try AffinePosMat.vectorize(.{ @as(f64, @floatFromInt(j)), @as(f64, @floatFromInt(i)) }));
                 if (vectors[i * width + j][0] < 0 or vectors[i * width + j][1] < 0) continue;
                 const floored_x = @floor(vectors[i * width + j][0]);
                 const floored_y = @floor(vectors[i * width + j][1]);
@@ -714,17 +794,17 @@ pub const ImageCore = struct {
                 if (ceil_y >= 0) max_y_overlap = @as(usize, @intFromFloat(ceil_y));
                 const x_per = vectors[i * width + j][0] - @floor(vectors[i * width + j][0]);
                 const y_per = vectors[i * width + j][1] - @floor(vectors[i * width + j][1]);
-                var average_pixel: struct { r: f32, g: f32, b: f32, a: f32 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-                var weight: f32 = 0;
+                var average_pixel: struct { r: f64, g: f64, b: f64, a: f64 } = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+                var weight: f64 = 0;
                 var indx: usize = undefined;
                 if (floored_x >= 0 and floored_y >= 0) {
                     indx = min_y_overlap * self.width + min_x_overlap;
                     if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and min_x_overlap < self.width) {
                         const scale = ((1 - x_per) * (1 - y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -732,10 +812,10 @@ pub const ImageCore = struct {
                     indx = min_y_overlap * self.width + max_x_overlap;
                     if (indx < self.data.len and indx >= 0 and min_y_overlap < self.height and max_x_overlap < self.width) {
                         const scale = ((x_per) * (1 - y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -743,10 +823,10 @@ pub const ImageCore = struct {
                     indx = max_y_overlap * self.width + min_x_overlap;
                     if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and min_x_overlap < self.width) {
                         const scale = ((1 - x_per) * (y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -754,10 +834,10 @@ pub const ImageCore = struct {
                     indx = max_y_overlap * self.width + max_x_overlap;
                     if (indx < self.data.len and indx >= 0 and max_y_overlap < self.height and max_x_overlap < self.width) {
                         const scale = ((x_per) * (y_per));
-                        average_pixel.r += scale * @as(f32, @floatFromInt(self.data[indx].get_r()));
-                        average_pixel.g += scale * @as(f32, @floatFromInt(self.data[indx].get_g()));
-                        average_pixel.b += scale * @as(f32, @floatFromInt(self.data[indx].get_b()));
-                        average_pixel.a += scale * @as(f32, @floatFromInt(self.data[indx].get_a()));
+                        average_pixel.r += scale * @as(f64, @floatFromInt(self.data[indx].get_r()));
+                        average_pixel.g += scale * @as(f64, @floatFromInt(self.data[indx].get_g()));
+                        average_pixel.b += scale * @as(f64, @floatFromInt(self.data[indx].get_b()));
+                        average_pixel.a += scale * @as(f64, @floatFromInt(self.data[indx].get_a()));
                         weight += scale;
                     }
                 }
@@ -795,11 +875,11 @@ pub const ImageCore = struct {
         while (i >= 0) {
             while (j < self.width) {
                 const pixel: *Pixel = &self.data[i * self.width + j];
-                var end_color: @Vector(4, f32) = .{ @as(f32, @floatFromInt(pixel.v[0])), @as(f32, @floatFromInt(pixel.v[1])), @as(f32, @floatFromInt(pixel.v[2])), @as(f32, @floatFromInt(pixel.v[3])) };
+                var end_color: @Vector(4, f64) = .{ @as(f64, @floatFromInt(pixel.v[0])), @as(f64, @floatFromInt(pixel.v[1])), @as(f64, @floatFromInt(pixel.v[2])), @as(f64, @floatFromInt(pixel.v[3])) };
                 if (pixel.get_a() != 255) {
                     const bkgd = 0;
-                    end_color *= @as(@Vector(4, f32), @splat((@as(f32, @floatFromInt(pixel.get_a())) / 255.0)));
-                    end_color += @as(@Vector(4, f32), @splat((1 - (@as(f32, @floatFromInt(pixel.get_a())) / 255.0)) * bkgd));
+                    end_color *= @as(@Vector(4, f64), @splat((@as(f64, @floatFromInt(pixel.get_a())) / 255.0)));
+                    end_color += @as(@Vector(4, f64), @splat((1 - (@as(f64, @floatFromInt(pixel.get_a())) / 255.0)) * bkgd));
                 }
                 const r: u8 = @as(u8, @intFromFloat(end_color[0]));
                 const g: u8 = @as(u8, @intFromFloat(end_color[1]));
@@ -825,18 +905,19 @@ pub const ImageCore = struct {
 };
 
 pub fn timer_end() void {
-    std.log.debug("{d} s elapsed.\n", .{@as(f32, @floatFromInt(timer.read())) / 1000000000.0});
+    std.log.debug("{d} s elapsed.\n", .{@as(f64, @floatFromInt(timer.read())) / 1000000000.0});
     timer.reset();
 }
 
-pub const ConvolMat = Mat(3);
+pub const ConvolMat = Mat(3, f64);
+pub const AffinePosMat = Mat(3, f64);
 
-pub fn Mat(comptime S: comptime_int) type {
+pub fn Mat(comptime S: comptime_int, comptime T: type) type {
     return struct {
-        data: [S * S]f32 = undefined,
+        data: [S * S]T = undefined,
         size: usize = S,
         pub const Self = @This();
-        pub const Vec = @Vector(S, f32);
+        pub const Vec = @Vector(S, T);
         pub const Error = error{
             TransformationUndefined,
             ArgError,
@@ -848,7 +929,7 @@ pub fn Mat(comptime S: comptime_int) type {
                 std.log.debug("{any}\n", .{v});
             }
         }
-        pub fn scale(s: f32) Error!Self {
+        pub fn scale(s: T) Error!Self {
             if (S < 2) return Error.TransformationUndefined;
             var ret = Self{};
             ret.data[0] = s;
@@ -871,24 +952,24 @@ pub fn Mat(comptime S: comptime_int) type {
             }
         }
 
-        pub fn clamp_vector(v: Vec, min: f32, max: f32) Vec {
+        pub fn clamp_vector(v: Vec, min: T, max: T) Vec {
             const min_v: Vec = @splat(min);
             const max_v: Vec = @splat(max);
             var pred: @Vector(S, bool) = v < min_v;
-            var res: Vec = @select(f32, pred, min_v, v);
+            var res: Vec = @select(T, pred, min_v, v);
             pred = res > max_v;
-            res = @select(f32, pred, max_v, res);
+            res = @select(T, pred, max_v, res);
             return res;
         }
 
-        pub fn fill_x(self: *Self, rc_start: usize, x: f32) void {
+        pub fn fill_x(self: *Self, rc_start: usize, x: T) void {
             for (rc_start..S) |i| {
                 for (rc_start..S) |j| {
                     self.data[i * S + j] = x;
                 }
             }
         }
-        pub fn rotate(comptime axis: @Type(.EnumLiteral), degrees: f32) Error!Self {
+        pub fn rotate(comptime axis: @Type(.EnumLiteral), degrees: T) Error!Self {
             if (S < 2) return Error.TransformationUndefined;
             const rad = degrees * std.math.rad_per_deg;
             var ret = Self{};
@@ -935,7 +1016,7 @@ pub fn Mat(comptime S: comptime_int) type {
             }
             return ret;
         }
-        pub fn shear(x: f32, y: f32) Error!Self {
+        pub fn shear(x: T, y: T) Error!Self {
             if (S < 2) return Error.TransformationUndefined;
             var ret = Self{};
             ret.data[0] = 1;
@@ -948,7 +1029,7 @@ pub fn Mat(comptime S: comptime_int) type {
             ret.fill_identity(2);
             return ret;
         }
-        pub fn translate(x: f32, y: f32) Error!Self {
+        pub fn translate(x: T, y: T) Error!Self {
             if (S < 3) return Error.TransformationUndefined;
             var ret = Self{};
             ret.data[0] = 1;
@@ -1076,7 +1157,7 @@ pub fn Mat(comptime S: comptime_int) type {
             //std.log.warn("vectorized {any}\n", .{res});
             return res;
         }
-        pub fn row(self: *const Self, r: usize) Mat(S).Vec {
+        pub fn row(self: *const Self, r: usize) Vec {
             return self.data[r * S .. r * S + S][0..S].*;
         }
         pub fn mul_v(self: *const Self, v: Vec) Vec {
@@ -1122,8 +1203,8 @@ pub fn Mat(comptime S: comptime_int) type {
             //std.log.warn("matrix matrix {any}\n", .{res.data});
             return res;
         }
-        pub fn naive_mul_v(self: *const Self, v: [S]f32) [S]f32 {
-            var res: [S]f32 = undefined;
+        pub fn naive_mul_v(self: *const Self, v: [S]f64) [S]f64 {
+            var res: [S]f64 = undefined;
             for (0..S) |i| {
                 res[i] = 0;
                 for (0..S) |j| {
@@ -1156,7 +1237,7 @@ test "FFT" {
 
 test "MATRIX" {
     const size: comptime_int = 3;
-    const Matrix = Mat(size);
+    const Matrix = Mat(size, f64);
     var m: Matrix = undefined;
     for (0..size) |i| {
         for (0..size) |j| {
@@ -1171,11 +1252,11 @@ test "MATRIX" {
         }
     }
     m2.print();
-    var v: @Vector(size, f32) = undefined;
+    var v: Matrix.Vec = undefined;
     for (0..size) |i| {
         v[i] = 2;
     }
-    var v_a: [size]f32 = undefined;
+    var v_a: [size]f64 = undefined;
     for (0..size) |i| {
         v_a[i] = 2;
     }
@@ -1198,7 +1279,7 @@ test "MATRIX" {
 
     _ = try Matrix.vectorize(.{ 2, 4 });
 
-    const scale = try Mat(4).scale(5);
+    const scale = try Mat(4, f64).scale(5);
     scale.print();
 }
 

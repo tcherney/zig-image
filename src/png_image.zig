@@ -112,10 +112,11 @@ pub const PNGImage = struct {
     compression_method: u8 = undefined,
     filter_method: u8 = undefined,
     interlace_method: u8 = undefined,
-    gamma: f32 = undefined,
+    gamma: f64 = undefined,
     plte_data: ?[]u8 = null,
     idat_data: []u8 = undefined,
     idat_data_len: usize = 0,
+    grayscale: bool = false,
     pub const Error = error{
         InvalidSignature,
         InvalidCompressionMethod,
@@ -158,7 +159,7 @@ pub const PNGImage = struct {
                 gamma_int = (gamma_int << 8) | chunk.chunk_data[1];
                 gamma_int = (gamma_int << 8) | chunk.chunk_data[2];
                 gamma_int = (gamma_int << 8) | chunk.chunk_data[3];
-                self.gamma = @as(f32, @floatFromInt(gamma_int)) / 100000.0;
+                self.gamma = @as(f64, @floatFromInt(gamma_int)) / 100000.0;
                 PNG_LOG.info("gamma {d}\n", .{self.gamma});
             }
         }
@@ -468,7 +469,7 @@ pub const PNGImage = struct {
                     },
                     2 => {
                         const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
-                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 3.0)));
+                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 3.0)));
                         self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 1) {
                             bit_index.* = 7;
@@ -479,7 +480,7 @@ pub const PNGImage = struct {
                     },
                     4 => {
                         const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
-                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f32, @floatFromInt(bits)) / 15.0)));
+                        const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 15.0)));
                         self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 3) {
                             bit_index.* = 7;
@@ -495,12 +496,13 @@ pub const PNGImage = struct {
                     },
                     16 => {
                         const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
-                        const gray = @as(u8, @intFromFloat(@as(f32, @floatFromInt(rgb)) * (255.0 / 65535.0)));
+                        const gray = @as(u8, @intFromFloat(@as(f64, @floatFromInt(rgb)) * (255.0 / 65535.0)));
                         self.data.items[data_index] = utils.Pixel.init(gray, gray, gray, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
                 }
+                self.grayscale = true;
             },
             2 => {
                 switch (self.bit_depth) {
@@ -509,7 +511,7 @@ pub const PNGImage = struct {
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = utils.Pixel.init(@as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
+                        self.data.items[data_index] = utils.Pixel.init(@as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -537,17 +539,18 @@ pub const PNGImage = struct {
                     },
                     16 => {
                         // next 3 bytes are rgb followed by alpha
-                        const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
+                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
                         self.data.items[data_index] = utils.Pixel.init(
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
                 }
+                self.grayscale = true;
             },
             6 => {
                 switch (self.bit_depth) {
@@ -563,11 +566,11 @@ pub const PNGImage = struct {
                     16 => {
                         //TODO figure out scuffed corner in 16 bit alpha images
                         // next 3 bytes are rgb followed by alpha
-                        const alpha = @as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
+                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
                         self.data.items[data_index] = utils.Pixel.init(
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f32, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         );
                         buffer_index.* += num_bytes_per_pixel;
@@ -585,14 +588,14 @@ pub const PNGImage = struct {
         var previous_index: usize = 0;
         var num_bytes_per_pixel: usize = undefined;
         switch (self.color_type) {
-            0 => num_bytes_per_pixel = @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(self.bit_depth)) / 8.0))),
+            0 => num_bytes_per_pixel = @as(usize, @intFromFloat(@ceil(@as(f64, @floatFromInt(self.bit_depth)) / 8.0))),
             2 => num_bytes_per_pixel = 3 * (self.bit_depth / 8),
             3 => num_bytes_per_pixel = 1,
             4 => num_bytes_per_pixel = 2 * (self.bit_depth / 8),
             6 => num_bytes_per_pixel = 4 * (self.bit_depth / 8),
             else => return Error.InvalidColorType,
         }
-        var scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.width)) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
+        var scanline_width: usize = if (self.bit_depth >= 8) self.width * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f64, @floatFromInt(self.width)) * ((1.0 * @as(f64, @floatFromInt(self.bit_depth))) / 8.0)));
         PNG_LOG.info("bytes per pixel {d}\n", .{num_bytes_per_pixel});
         buffer_index = 0;
         var data_index: usize = 0;
@@ -625,7 +628,7 @@ pub const PNGImage = struct {
                     const filter_type: u8 = ret.items[buffer_index];
                     //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                     buffer_index += 1;
-                    scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f32, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f32, @floatFromInt(self.bit_depth))) / 8.0)));
+                    scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f64, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f64, @floatFromInt(self.bit_depth))) / 8.0)));
                     const previous_scanline: ?[]u8 = if (previous_index > 0) current_scanline else null;
                     previous_index = buffer_index;
                     current_scanline = ret.items[buffer_index .. scanline_width + buffer_index];
@@ -647,6 +650,7 @@ pub const PNGImage = struct {
             for (0..self.data.items.len) |i| {
                 self.data.items[i].v = data_copy[i].v;
             }
+            self.grayscale = true;
         } else {
             return Error.NotLoaded;
         }
@@ -685,7 +689,7 @@ pub const PNGImage = struct {
         }
     }
 
-    pub fn rotate(self: *PNGImage, degrees: f32) Error!void {
+    pub fn rotate(self: *PNGImage, degrees: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.rotate(degrees);
@@ -702,7 +706,7 @@ pub const PNGImage = struct {
         }
     }
 
-    pub fn shear(self: *PNGImage, c_x: f32, c_y: f32) Error!void {
+    pub fn shear(self: *PNGImage, c_x: f64, c_y: f64) Error!void {
         if (self.loaded) {
             var core = self.image_core();
             const data = try core.shear(c_x, c_y);
