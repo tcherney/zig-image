@@ -1,8 +1,10 @@
 //https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&index=1
 const std = @import("std");
 const utils = @import("utils.zig");
+const image_core = @import("image_core.zig");
 
-pub const ConvolMat = utils.ConvolMat;
+pub const ConvolMat = image_core.ConvolMat;
+pub const ImageCore = image_core.ImageCore;
 const JPEG_LOG = std.log.scoped(.jpeg_image);
 
 const JPEG_HEADERS = enum(u8) {
@@ -231,7 +233,7 @@ pub const JPEGImage = struct {
         NotLoaded,
         ThreadQuotaExceeded,
         LockedMemoryLimitExceeded,
-    } || utils.BitReader.Error || utils.ByteStream.Error || utils.ImageCore.Error || std.mem.Allocator.Error || std.time.Timer.Error;
+    } || utils.BitReader.Error || utils.ByteStream.Error || ImageCore.Error || std.mem.Allocator.Error || std.time.Timer.Error;
 
     fn thread_compute(self: *JPEGImage, start: usize, block_height: u32) Error!void {
         try self.de_quant_data(start, block_height);
@@ -1270,8 +1272,8 @@ pub const JPEGImage = struct {
         }
     }
 
-    pub fn image_core(self: *JPEGImage) utils.ImageCore {
-        return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
+    pub fn image_core(self: *JPEGImage) ImageCore {
+        return ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
     pub fn write_BMP(self: *JPEGImage, file_name: []const u8) Error!void {
         if (!self.loaded) {

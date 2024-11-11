@@ -7,8 +7,10 @@
 //https://www.w3.org/TR/2024/CRD-png-3-20240718/#13Progressive-display
 const std = @import("std");
 const utils = @import("utils.zig");
+const image_core = @import("image_core.zig");
 
-pub const ConvolMat = utils.ConvolMat;
+pub const ConvolMat = image_core.ConvolMat;
+pub const ImageCore = image_core.ImageCore;
 const PNG_LOG = std.log.scoped(.png_image);
 
 var crc_table: [256]u32 = [_]u32{0} ** 256;
@@ -127,7 +129,7 @@ pub const PNGImage = struct {
         InvalidHuffmanSymbol,
         InvalidColorType,
         NotLoaded,
-    } || std.mem.Allocator.Error || utils.ByteStream.Error || utils.BitReader.Error || Chunk.Error || utils.ImageCore.Error;
+    } || std.mem.Allocator.Error || utils.ByteStream.Error || utils.BitReader.Error || Chunk.Error || ImageCore.Error;
     fn read_chucks(self: *PNGImage) Error!void {
         self.chunks = std.ArrayList(Chunk).init(self.allocator);
         while (self.file_data.getPos() != self.file_data.getEndPos()) {
@@ -766,8 +768,8 @@ pub const PNGImage = struct {
         return &self.data.items[y * self.width + x];
     }
 
-    pub fn image_core(self: *PNGImage) utils.ImageCore {
-        return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
+    pub fn image_core(self: *PNGImage) ImageCore {
+        return ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
 
     pub fn write_BMP(self: *PNGImage, file_name: []const u8) Error!void {

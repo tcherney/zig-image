@@ -1,6 +1,7 @@
 //wrapper struct to provide generic image struct
 const std = @import("std");
 const utils = @import("utils.zig");
+const image_core = @import("image_core.zig");
 const jpeg_image = @import("jpeg_image.zig");
 const png_image = @import("png_image.zig");
 const bmp_image = @import("bmp_image.zig");
@@ -11,9 +12,9 @@ pub fn Image(comptime T: type) type {
 
 pub const ByteStream = utils.ByteStream;
 pub const BitReader = utils.BitReader;
-pub const ImageCore = utils.ImageCore;
+pub const ImageCore = image_core.ImageCore;
 pub const Pixel = utils.Pixel;
-pub const ConvolMat = utils.ConvolMat;
+pub const ConvolMat = image_core.ConvolMat;
 pub const JPEGImage: type = jpeg_image.JPEGImage;
 pub const PNGImage: type = png_image.PNGImage;
 pub const BMPImage: type = bmp_image.BMPImage;

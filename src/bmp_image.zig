@@ -1,8 +1,10 @@
 //https://en.wikipedia.org/wiki/BMP_file_format
 const std = @import("std");
 const utils = @import("utils.zig");
+const image_core = @import("image_core.zig");
 
-pub const ConvolMat = utils.ConvolMat;
+pub const ConvolMat = image_core.ConvolMat;
+pub const ImageCore = image_core.ImageCore;
 const BMP_LOG = std.log.scoped(.bmp_image);
 
 pub const BMPImage = struct {
@@ -20,7 +22,7 @@ pub const BMPImage = struct {
         InvalidBMPHeader,
         InvalidDIBHeader,
         UnsupportedCompressionMethod,
-    } || utils.BitReader.Error || std.mem.Allocator.Error || utils.ImageCore.Error;
+    } || utils.BitReader.Error || std.mem.Allocator.Error || ImageCore.Error;
     const BMPFileHeader = struct {
         bmp_type: [2]u8 = [_]u8{0} ** 2,
         file_size: u32 = undefined,
@@ -394,8 +396,8 @@ pub const BMPImage = struct {
         BMP_LOG.info("offset {d}\n", .{self.bmp_file_header.offset});
     }
 
-    pub fn image_core(self: *BMPImage) utils.ImageCore {
-        return utils.ImageCore.init(self.allocator, self.width, self.height, self.data.items);
+    pub fn image_core(self: *BMPImage) ImageCore {
+        return ImageCore.init(self.allocator, self.width, self.height, self.data.items);
     }
 
     pub fn write_BMP(self: *BMPImage, file_name: []const u8) Error!void {
