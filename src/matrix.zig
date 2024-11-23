@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 pub fn Mat(comptime S: comptime_int, comptime T: type) type {
     return struct {
         data: [S * S]T = undefined,
@@ -271,6 +272,9 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
             return res;
         }
         pub fn mul(self: *const Self, other: Self) Self {
+            return self.mul_by_row(other);
+        }
+        pub fn mul_by_col(self: *const Self, other: Self) Self {
             var res: Self = undefined;
             for (0..S) |i| {
                 const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
@@ -282,7 +286,19 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
                     res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
                 }
             }
-            std.log.debug("matrix matrix {any}\n", .{res.data});
+            std.log.debug("matrix matrix by col {any}\n", .{res.data});
+            return res;
+        }
+        pub fn mul_by_row(self: *const Self, other: Self) Self {
+            var res: Self = Self.init(.{0} ** (S * S));
+            for (0..S) |i| {
+                const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
+                for (0..S) |j| {
+                    const mat_other_r: Vec = other.data[j * S .. j * S + S][0..S].*;
+                    res.data[i * S .. i * S + S][0..S].* += mat_r * mat_other_r;
+                }
+            }
+            std.log.debug("matrix matrix by row {any}\n", .{res.data});
             return res;
         }
         pub fn naive_mul(self: *const Self, other: Self) Self {
@@ -353,6 +369,23 @@ test "MATRIX" {
     _ = try Matrix.vectorize(.{ 2, 4 });
     const scale = try Mat(4, f64).scale(5);
     scale.print();
+}
+
+test "MATRIX mult" {
+    const size: comptime_int = 128;
+    const Matrix = Mat(size, f64);
+    var m: Matrix = Matrix{};
+    m.fill_x(0, 2);
+    m.print();
+    var m2: Matrix = Matrix{};
+    m2.fill_x(0, 2);
+    m2.print();
+
+    try utils.timer_start();
+    _ = m.mul_by_row(m2);
+    utils.timer_end();
+    _ = m.mul_by_col(m2);
+    utils.timer_end();
 }
 
 test "Transpose" {

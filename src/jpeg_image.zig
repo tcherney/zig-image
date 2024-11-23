@@ -1120,7 +1120,7 @@ pub const JPEGImage = struct {
         defer self.allocator.free(self.blocks);
 
         //JPEG_LOG.info("block height {d}\n", .{self._block_height});
-        try utils.timer_start();
+        //try utils.timer_start();
         var num_threads: usize = 10;
         while (num_threads > 0 and (self.block_height / num_threads) < num_threads) {
             num_threads -= 2;
@@ -1152,7 +1152,7 @@ pub const JPEGImage = struct {
             self.allocator.free(threads);
         }
 
-        utils.timer_end();
+        //utils.timer_end();
 
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = 0;
