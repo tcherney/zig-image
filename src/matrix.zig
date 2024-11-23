@@ -9,6 +9,11 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
             TransformationUndefined,
             ArgError,
         };
+        pub fn init(data: [S * S]T) Self {
+            return Self{
+                .data = data,
+            };
+        }
         pub fn print(self: *const Self) void {
             std.log.debug("{any}\n", .{self.data});
             for (0..S) |i| {
@@ -247,6 +252,15 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
         pub fn row(self: *const Self, r: usize) Vec {
             return self.data[r * S .. r * S + S][0..S].*;
         }
+        pub fn transpose(self: *Self) void {
+            for (0..S - 1) |i| {
+                for (i + 1..S) |j| {
+                    const temp = self.data[i * S + j];
+                    self.data[i * S + j] = self.data[j * S + i];
+                    self.data[j * S + i] = temp;
+                }
+            }
+        }
         pub fn mul_v(self: *const Self, v: Vec) Vec {
             var res: Vec = undefined;
             for (0..S) |i| {
@@ -339,4 +353,13 @@ test "MATRIX" {
     _ = try Matrix.vectorize(.{ 2, 4 });
     const scale = try Mat(4, f64).scale(5);
     scale.print();
+}
+
+test "Transpose" {
+    const size: comptime_int = 3;
+    const Matrix = Mat(size, f64);
+    var m = Matrix.init(.{ 1, 2, 3, 4, 5, 6, 7, 8, 9 });
+    m.print();
+    m.transpose();
+    m.print();
 }
