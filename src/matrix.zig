@@ -1,5 +1,6 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+//TODO add inverse calculation to support solving systems of linear equations
 pub fn Mat(comptime S: comptime_int, comptime T: type) type {
     return struct {
         data: [S * S]T = undefined,
