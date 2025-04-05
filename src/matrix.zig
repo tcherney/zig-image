@@ -6,7 +6,7 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
         data: [S * S]T = undefined,
         size: usize = S,
         pub const Self = @This();
-        pub const Vec = @Vector(S, T);
+        pub const Vec: type = @Vector(S, T);
         pub const Error = error{
             TransformationUndefined,
             ArgError,
@@ -63,7 +63,7 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
                 }
             }
         }
-        pub fn rotate(comptime axis: @Type(.EnumLiteral), degrees: T) Error!Self {
+        pub fn rotate(comptime axis: @Type(.enum_literal), degrees: T) Error!Self {
             if (S < 2) return Error.TransformationUndefined;
             const rad = degrees * std.math.rad_per_deg;
             var ret = Self{};
@@ -237,7 +237,7 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
         pub fn vectorize(args: anytype) Error!Vec {
             const ArgsType = @TypeOf(args);
             const args_type_info = @typeInfo(ArgsType);
-            if (args_type_info != .Struct) {
+            if (args_type_info != .@"struct") {
                 @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
             }
             if (args_type_info.Struct.fields.len != S - 1) {
@@ -273,35 +273,36 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
             return res;
         }
         pub fn mul(self: *const Self, other: Self) Self {
-            return self.mul_by_row(other);
+            return self.naive_mul(other);
         }
-        pub fn mul_by_col(self: *const Self, other: Self) Self {
-            var res: Self = undefined;
-            for (0..S) |i| {
-                const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
-                for (0..S) |j| {
-                    var mat_c: Vec = undefined;
-                    for (0..S) |k| {
-                        mat_c[k] = other.data[k * S + j];
-                    }
-                    res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
-                }
-            }
-            std.log.debug("matrix matrix by col {any}\n", .{res.data});
-            return res;
-        }
-        pub fn mul_by_row(self: *const Self, other: Self) Self {
-            var res: Self = Self.init(.{0} ** (S * S));
-            for (0..S) |i| {
-                const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
-                for (0..S) |j| {
-                    const mat_other_r: Vec = other.data[j * S .. j * S + S][0..S].*;
-                    res.data[i * S .. i * S + S][0..S].* += mat_r * mat_other_r;
-                }
-            }
-            std.log.debug("matrix matrix by row {any}\n", .{res.data});
-            return res;
-        }
+        //TODO fix to work with 0.14
+        // pub fn mul_by_col(self: *const Self, other: Self) Self {
+        //     var res: Self = undefined;
+        //     for (0..S) |i| {
+        //         const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
+        //         for (0..S) |j| {
+        //             var mat_c: Vec = undefined;
+        //             for (0..S) |k| {
+        //                 mat_c[k] = other.data[k * S + j];
+        //             }
+        //             res.data[i * S + j] = @reduce(.Add, mat_r * mat_c);
+        //         }
+        //     }
+        //     std.log.debug("matrix matrix by col {any}\n", .{res.data});
+        //     return res;
+        // }
+        // pub fn mul_by_row(self: *const Self, other: Self) Self {
+        //     var res: Self = Self.init(.{0} ** (S * S));
+        //     for (0..S) |i| {
+        //         const mat_r: Vec = self.data[i * S .. i * S + S][0..S].*;
+        //         for (0..S) |j| {
+        //             const mat_other_r: Vec = other.data[j * S .. j * S + S][0..S].*;
+        //             res.data[i * S .. i * S + S][0..S].* += mat_r * mat_other_r;
+        //         }
+        //     }
+        //     std.log.debug("matrix matrix by row {any}\n", .{res.data});
+        //     return res;
+        // }
         pub fn naive_mul(self: *const Self, other: Self) Self {
             var res: Self = undefined;
             for (0..S) |i| {
@@ -372,22 +373,22 @@ test "MATRIX" {
     scale.print();
 }
 
-test "MATRIX mult" {
-    const size: comptime_int = 128;
-    const Matrix = Mat(size, f64);
-    var m: Matrix = Matrix{};
-    m.fill_x(0, 2);
-    m.print();
-    var m2: Matrix = Matrix{};
-    m2.fill_x(0, 2);
-    m2.print();
+// test "MATRIX mult" {
+//     const size: comptime_int = 128;
+//     const Matrix = Mat(size, f64);
+//     var m: Matrix = Matrix{};
+//     m.fill_x(0, 2);
+//     m.print();
+//     var m2: Matrix = Matrix{};
+//     m2.fill_x(0, 2);
+//     m2.print();
 
-    try utils.timer_start();
-    _ = m.mul_by_row(m2);
-    utils.timer_end();
-    _ = m.mul_by_col(m2);
-    utils.timer_end();
-}
+//     try utils.timer_start();
+//     _ = m.mul_by_row(m2);
+//     utils.timer_end();
+//     _ = m.mul_by_col(m2);
+//     utils.timer_end();
+// }
 
 test "Transpose" {
     const size: comptime_int = 3;

@@ -532,7 +532,7 @@ pub const ImageCore = struct {
         return data_copy;
     }
     //reflect along an axis x, y or both
-    pub fn reflection(self: *const Self, comptime axis: @Type(.EnumLiteral)) Error![]Pixel {
+    pub fn reflection(self: *const Self, comptime axis: @Type(.enum_literal)) Error![]Pixel {
         var data_copy = try self.allocator.dupe(Pixel, self.data);
         errdefer self.allocator.free(data_copy);
         switch (axis) {
