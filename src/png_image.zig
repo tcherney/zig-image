@@ -679,7 +679,7 @@ pub const PNGImage = struct {
             return Error.NotLoaded;
         }
     }
-    pub fn reflection(self: *PNGImage, comptime axis: @Type(.EnumLiteral)) Error!void {
+    pub fn reflection(self: *PNGImage, comptime axis: @Type(.enum_literal)) Error!void {
         if (self.loaded) {
             const data_copy = try self.image_core().reflection(axis);
             defer self.allocator.free(data_copy);

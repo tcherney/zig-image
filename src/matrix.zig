@@ -240,12 +240,12 @@ pub fn Mat(comptime S: comptime_int, comptime T: type) type {
             if (args_type_info != .@"struct") {
                 @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
             }
-            if (args_type_info.Struct.fields.len != S - 1) {
+            if (args_type_info.@"struct".fields.len != S - 1) {
                 return Error.ArgError;
             }
             var res: Vec = undefined;
-            inline for (0..args_type_info.Struct.fields.len) |i| {
-                res[i] = @field(args, args_type_info.Struct.fields[i].name);
+            inline for (0..args_type_info.@"struct".fields.len) |i| {
+                res[i] = @field(args, args_type_info.@"struct".fields[i].name);
             }
             res[S - 1] = 1;
             //std.log.warn("vectorized {any}\n", .{res});
