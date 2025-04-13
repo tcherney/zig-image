@@ -36,10 +36,41 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const commonlib = b.dependency("common", .{});
+    exe.root_module.addImport("common", commonlib.module("common"));
+
     const image_module = b.addModule("image", .{
         .root_source_file = b.path("src/image.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+
+    const bmp_image_module = b.addModule("bmp_image", .{
+        .root_source_file = b.path("src/bmp_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const jpeg_image_module = b.addModule("jpeg_image", .{
+        .root_source_file = b.path("src/jpeg_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const png_image_module = b.addModule("png_image", .{
+        .root_source_file = b.path("src/png_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    bmp_image_module.addImport("common", commonlib.module("common"));
+    jpeg_image_module.addImport("common", commonlib.module("common"));
+    png_image_module.addImport("common", commonlib.module("common"));
+    image_module.addImport("common", commonlib.module("common"));
     exe.root_module.addImport("image", image_module);
+    exe.root_module.addImport("bmp_image", bmp_image_module);
+    exe.root_module.addImport("jpeg_image", jpeg_image_module);
+    exe.root_module.addImport("png_image", png_image_module);
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -71,9 +102,8 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const bmp_lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/bmp_image.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "bmp_image",
+        .root_module = bmp_image_module,
     });
 
     const run_bmp_lib_unit_tests = b.addRunArtifact(bmp_lib_unit_tests);
@@ -81,9 +111,8 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const png_lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/png_image.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "png_image",
+        .root_module = png_image_module,
     });
 
     const run_png_lib_unit_tests = b.addRunArtifact(png_lib_unit_tests);
@@ -91,9 +120,8 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const jpeg_lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/jpeg_image.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "jpeg_image",
+        .root_module = jpeg_image_module,
     });
 
     const run_jpeg_lib_unit_tests = b.addRunArtifact(jpeg_lib_unit_tests);
@@ -101,9 +129,8 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const image_lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/image.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "image",
+        .root_module = image_module,
     });
 
     const run_image_lib_unit_tests = b.addRunArtifact(image_lib_unit_tests);

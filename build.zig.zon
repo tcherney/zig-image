@@ -53,6 +53,9 @@
         //    // actually used.
         //    .lazy = false,
         //},
+        .common = .{
+            .path = "../common",
+        },
     },
 
     // Specifies the set of files and directories that are included in this package.

@@ -1,6 +1,6 @@
 //https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&index=1
 const std = @import("std");
-const utils = @import("utils.zig");
+const common = @import("common");
 const image_core = @import("image_core.zig");
 
 pub const ConvolMat = image_core.ConvolMat;
@@ -182,7 +182,7 @@ fn Block(comptime T: type) type {
 }
 
 pub const JPEGImage = struct {
-    data: std.ArrayList(utils.Pixel) = undefined,
+    data: std.ArrayList(common.Pixel) = undefined,
     quantization_tables: [4]QuantizationTable = [_]QuantizationTable{.{}} ** 4,
     height: u32 = 0,
     width: u32 = 0,
@@ -233,14 +233,14 @@ pub const JPEGImage = struct {
         NotLoaded,
         ThreadQuotaExceeded,
         LockedMemoryLimitExceeded,
-    } || utils.BitReader.Error || utils.ByteStream.Error || ImageCore.Error || std.mem.Allocator.Error || std.time.Timer.Error;
+    } || common.BitReader.Error || common.ByteStream.Error || ImageCore.Error || std.mem.Allocator.Error || std.time.Timer.Error;
 
     fn thread_compute(self: *JPEGImage, start: usize, block_height: u32) Error!void {
         try self.de_quant_data(start, block_height);
         self.inverse_dct(start, block_height);
         self.ycb_rgb(start, block_height);
     }
-    fn read_start_of_frame(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_start_of_frame(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("Reading SOF marker\n", .{});
         if (self.num_components != 0) {
             return Error.InvalidHeader;
@@ -328,7 +328,7 @@ pub const JPEGImage = struct {
             return Error.InvalidHeader;
         }
     }
-    fn read_quant_table(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_quant_table(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         var length: i16 = try bit_reader.read(i16);
         length -= 2;
         while (length > 0) {
@@ -359,7 +359,7 @@ pub const JPEGImage = struct {
             return Error.InvalidDQT;
         }
     }
-    fn read_restart_interval(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_restart_interval(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("Reading DRI marker\n", .{});
         const length: i16 = try bit_reader.read(i16);
         self.restart_interval = try bit_reader.read(u16);
@@ -368,7 +368,7 @@ pub const JPEGImage = struct {
         }
         JPEG_LOG.info("Restart interval {d}\n", .{self.restart_interval});
     }
-    fn read_start_of_scan(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_start_of_scan(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("Reading SOS marker\n", .{});
         if (self.num_components == 0) {
             return Error.InvalidHeader;
@@ -440,7 +440,7 @@ pub const JPEGImage = struct {
             return Error.InvalidSOS;
         }
     }
-    fn read_huffman(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_huffman(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("Reading DHT marker\n", .{});
         var length: i16 = try bit_reader.read(i16);
         length -= 2;
@@ -478,10 +478,10 @@ pub const JPEGImage = struct {
             return Error.InvalidHuffmanLength;
         }
     }
-    fn skippable_header(_: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn skippable_header(_: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         _ = try bit_reader.read(u16);
     }
-    fn read_appn(_: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_appn(_: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         const length: u16 = try bit_reader.read(u16);
         if (length < 2) {
             return Error.InvalidHeader;
@@ -491,7 +491,7 @@ pub const JPEGImage = struct {
             _ = try bit_reader.read(u8);
         }
     }
-    fn read_headers(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_headers(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         var last: u8 = try bit_reader.read(u8);
         var current: u8 = try bit_reader.read(u8);
         if (last == @intFromEnum(JPEG_HEADERS.HEADER) and current == @intFromEnum(JPEG_HEADERS.SOI)) {
@@ -559,7 +559,7 @@ pub const JPEGImage = struct {
             }
         }
     }
-    fn read_scans(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_scans(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         try self.read_start_of_scan(bit_reader);
         JPEG_LOG.info("next header {x} {x}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1] });
         //self.print();
@@ -589,7 +589,7 @@ pub const JPEGImage = struct {
             current = try bit_reader.read(u8);
         }
     }
-    fn read_JPEG(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn read_JPEG(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         try self.read_headers(bit_reader);
         self.blocks = try self.allocator.alloc(Block(i32), self.block_height_real * self.block_width_real);
         for (self.blocks) |*block| {
@@ -600,7 +600,7 @@ pub const JPEGImage = struct {
         try self.read_scans(bit_reader);
     }
     pub fn deinit(self: *JPEGImage) void {
-        std.ArrayList(utils.Pixel).deinit(self.data);
+        std.ArrayList(common.Pixel).deinit(self.data);
     }
     pub fn print(self: *JPEGImage) void {
         JPEG_LOG.info("Quant Tables:\n", .{});
@@ -628,7 +628,7 @@ pub const JPEGImage = struct {
             code <<= 1;
         }
     }
-    fn decode_huffman_data(self: *JPEGImage, bit_reader: *utils.BitReader) Error!void {
+    fn decode_huffman_data(self: *JPEGImage, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("{d} {d} real {d} {d}\n", .{ self.block_width, self.block_height, self.block_width_real, self.block_height_real });
 
         var previous_dcs: [3]i32 = [_]i32{0} ** 3;
@@ -665,7 +665,7 @@ pub const JPEGImage = struct {
             x = 0;
         }
     }
-    fn get_next_symbol(_: *JPEGImage, bit_reader: *utils.BitReader, h_table: *HuffmanTable) Error!u8 {
+    fn get_next_symbol(_: *JPEGImage, bit_reader: *common.BitReader, h_table: *HuffmanTable) Error!u8 {
         var current_code: i32 = 0;
         for (0..h_table.offsets.len - 1) |i| {
             const bit: i32 = @as(i32, @bitCast(try bit_reader.read_bit()));
@@ -678,7 +678,7 @@ pub const JPEGImage = struct {
         }
         return Error.HuffmanDecoding;
     }
-    fn decode_block_component(self: *JPEGImage, bit_reader: *utils.BitReader, color_channel: []i32, previous_dc: *i32, skips: *u32, dct_table: *HuffmanTable, act_table: *HuffmanTable) Error!void {
+    fn decode_block_component(self: *JPEGImage, bit_reader: *common.BitReader, color_channel: []i32, previous_dc: *i32, skips: *u32, dct_table: *HuffmanTable, act_table: *HuffmanTable) Error!void {
         if (self.frame_type == JPEG_HEADERS.SOF0) {
             const length: u8 = try get_next_symbol(self, bit_reader, dct_table);
             if (length > 11) {
@@ -1116,11 +1116,11 @@ pub const JPEGImage = struct {
     }
 
     fn gen_rgb_data(self: *JPEGImage) Error!void {
-        self.data = std.ArrayList(utils.Pixel).init(self.allocator);
+        self.data = std.ArrayList(common.Pixel).init(self.allocator);
         defer self.allocator.free(self.blocks);
 
         //JPEG_LOG.info("block height {d}\n", .{self._block_height});
-        //try utils.timer_start();
+        //try common.timer_start();
         var num_threads: usize = 10;
         while (num_threads > 0 and (self.block_height / num_threads) < num_threads) {
             num_threads -= 2;
@@ -1152,7 +1152,7 @@ pub const JPEGImage = struct {
             self.allocator.free(threads);
         }
 
-        //utils.timer_end();
+        //common.timer_end();
 
         // store color data to be used later in either writing to another file or direct access in code
         var i: usize = 0;
@@ -1166,7 +1166,7 @@ pub const JPEGImage = struct {
                 //JPEG_LOG.info("writing index {d}\n", .{block_index});
                 const pixel_index = pixel_row * 8 + pixel_col;
                 //JPEG_LOG.info("pixel ({d}) ({d}) ({d})\n", .{ blocks[block_index].r[pixel_index], blocks[block_index].g[pixel_index], blocks[block_index].b[pixel_index] });
-                try self.data.append(utils.Pixel.init(
+                try self.data.append(common.Pixel.init(
                     @truncate(@as(u32, @bitCast(self.blocks[block_index].r[pixel_index]))),
                     @truncate(@as(u32, @bitCast(self.blocks[block_index].g[pixel_index]))),
                     @truncate(@as(u32, @bitCast(self.blocks[block_index].b[pixel_index]))),
@@ -1281,11 +1281,11 @@ pub const JPEGImage = struct {
         }
         try self.image_core().write_BMP(file_name);
     }
-    pub fn get(self: *const JPEGImage, x: usize, y: usize) *utils.Pixel {
+    pub fn get(self: *const JPEGImage, x: usize, y: usize) *common.Pixel {
         return &self.data.items[y * self.width + x];
     }
     pub fn load(self: *JPEGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
-        var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
+        var bit_reader: common.BitReader = try common.BitReader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
         self.allocator = allocator;
         try self.read_JPEG(&bit_reader);
         JPEG_LOG.info("finished reading jpeg\n", .{});

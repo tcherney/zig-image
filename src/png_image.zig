@@ -6,7 +6,7 @@
 //http://www.schaik.com/pngsuite/
 //https://www.w3.org/TR/2024/CRD-png-3-20240718/#13Progressive-display
 const std = @import("std");
-const utils = @import("utils.zig");
+const common = @import("common");
 const image_core = @import("image_core.zig");
 
 pub const ConvolMat = image_core.ConvolMat;
@@ -53,12 +53,12 @@ const Chunk = struct {
     chunk_type: []u8 = undefined,
     chunk_data: []u8 = undefined,
     crc_check: u32 = undefined,
-    pub const Error = error{InvalidCRC} || std.mem.Allocator.Error || utils.ByteStream.Error;
+    pub const Error = error{InvalidCRC} || std.mem.Allocator.Error || common.ByteStream.Error;
     pub fn init(self: *Chunk, allocator: std.mem.Allocator) void {
         self.allocator = allocator;
     }
 
-    pub fn read_chunk(self: *Chunk, file_data: *utils.ByteStream) Error!void {
+    pub fn read_chunk(self: *Chunk, file_data: *common.ByteStream) Error!void {
         self.length = (@as(u32, @intCast(try file_data.readByte())) << 24) | (@as(u32, @intCast(try file_data.readByte())) << 16) | (@as(u32, @intCast(try file_data.readByte())) << 8) | (@as(u32, @intCast(try file_data.readByte())));
         PNG_LOG.info("length {d}\n", .{self.length});
         self.data = try self.allocator.alloc(u8, self.length + 4);
@@ -102,11 +102,11 @@ const BlockHeight = [_]u8{ 8, 8, 4, 4, 2, 2, 1 };
 const BlockWidth = [_]u8{ 8, 4, 4, 2, 2, 1, 1 };
 
 pub const PNGImage = struct {
-    file_data: utils.ByteStream = undefined,
+    file_data: common.ByteStream = undefined,
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
     chunks: std.ArrayList(Chunk) = undefined,
-    data: std.ArrayList(utils.Pixel) = undefined,
+    data: std.ArrayList(common.Pixel) = undefined,
     width: u32 = undefined,
     height: u32 = undefined,
     bit_depth: u8 = undefined,
@@ -129,7 +129,7 @@ pub const PNGImage = struct {
         InvalidHuffmanSymbol,
         InvalidColorType,
         NotLoaded,
-    } || std.mem.Allocator.Error || utils.ByteStream.Error || utils.BitReader.Error || Chunk.Error || ImageCore.Error;
+    } || std.mem.Allocator.Error || common.ByteStream.Error || common.BitReader.Error || Chunk.Error || ImageCore.Error;
     fn read_chucks(self: *PNGImage) Error!void {
         self.chunks = std.ArrayList(Chunk).init(self.allocator);
         while (self.file_data.getPos() != self.file_data.getEndPos()) {
@@ -194,7 +194,7 @@ pub const PNGImage = struct {
         }
     }
     fn decompress(self: *PNGImage) Error!std.ArrayList(u8) {
-        var bit_reader: utils.BitReader = try utils.BitReader.init(.{ .data = self.idat_data, .reverse_bit_order = true, .little_endian = true });
+        var bit_reader: common.BitReader = try common.BitReader.init(.{ .data = self.idat_data, .reverse_bit_order = true, .little_endian = true });
         PNG_LOG.info("idat data len {d}\n", .{self.idat_data.len});
         defer bit_reader.deinit();
         const CMF = try bit_reader.read(u8);
@@ -222,7 +222,7 @@ pub const PNGImage = struct {
         ADLER32 |= @as(u32, @intCast(try bit_reader.read(u8))) << 24;
         return ret;
     }
-    fn inflate(self: *PNGImage, bit_reader: *utils.BitReader) Error!std.ArrayList(u8) {
+    fn inflate(self: *PNGImage, bit_reader: *common.BitReader) Error!std.ArrayList(u8) {
         var BFINAL: u32 = 0;
         var ret: std.ArrayList(u8) = std.ArrayList(u8).init(self.allocator);
         while (BFINAL == 0) {
@@ -241,7 +241,7 @@ pub const PNGImage = struct {
         }
         return ret;
     }
-    fn decode_symbol(_: *PNGImage, bit_reader: *utils.BitReader, tree: *utils.HuffmanTree(u16)) Error!u16 {
+    fn decode_symbol(_: *PNGImage, bit_reader: *common.BitReader, tree: *common.HuffmanTree(u16)) Error!u16 {
         var node = tree.root;
         while (node.left != null and node.right != null) {
             const bit = try bit_reader.read_bit();
@@ -249,7 +249,7 @@ pub const PNGImage = struct {
         }
         return node.symbol;
     }
-    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
+    fn inflate_block_no_compression(_: *PNGImage, bit_reader: *common.BitReader, ret: *std.ArrayList(u8)) Error!void {
         PNG_LOG.info("inflate no compression\n", .{});
         const LEN = try bit_reader.read(u16);
         PNG_LOG.info("LEN {d}\n", .{LEN});
@@ -259,8 +259,8 @@ pub const PNGImage = struct {
             try ret.append(try bit_reader.read(u8));
         }
     }
-    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) Error!*utils.HuffmanTree(u16) {
-        const MAX_BITS = utils.max_array(u16, bit_length_list);
+    fn bit_length_list_to_tree(self: *PNGImage, bit_length_list: []u16, alphabet: []u16) Error!*common.HuffmanTree(u16) {
+        const MAX_BITS = common.max_array(u16, bit_length_list);
         var bl_count: []u16 = try self.allocator.alloc(u16, MAX_BITS + 1);
         defer self.allocator.free(bl_count);
         for (0..bl_count.len) |i| {
@@ -279,8 +279,8 @@ pub const PNGImage = struct {
         for (2..MAX_BITS + 1) |bits| {
             try next_code.append((next_code.items[bits - 1] + bl_count[bits - 1]) << 1);
         }
-        var tree: *utils.HuffmanTree(u16) = try self.allocator.create(utils.HuffmanTree(u16));
-        tree.* = try utils.HuffmanTree(u16).init(self.allocator);
+        var tree: *common.HuffmanTree(u16) = try self.allocator.create(common.HuffmanTree(u16));
+        tree.* = try common.HuffmanTree(u16).init(self.allocator);
         const min_len = @min(alphabet.len, bit_length_list.len);
         for (0..min_len) |i| {
             if (bit_length_list[i] != 0) {
@@ -290,7 +290,7 @@ pub const PNGImage = struct {
         }
         return tree;
     }
-    fn inflate_block_data(self: *PNGImage, bit_reader: *utils.BitReader, literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16), ret: *std.ArrayList(u8)) Error!void {
+    fn inflate_block_data(self: *PNGImage, bit_reader: *common.BitReader, literal_length_tree: *common.HuffmanTree(u16), distance_tree: *common.HuffmanTree(u16), ret: *std.ArrayList(u8)) Error!void {
         while (true) {
             var symbol = try self.decode_symbol(bit_reader, literal_length_tree);
             if (symbol <= 255) {
@@ -309,7 +309,7 @@ pub const PNGImage = struct {
             }
         }
     }
-    fn decode_trees(self: *PNGImage, bit_reader: *utils.BitReader) Error!struct { literal_length_tree: *utils.HuffmanTree(u16), distance_tree: *utils.HuffmanTree(u16) } {
+    fn decode_trees(self: *PNGImage, bit_reader: *common.BitReader) Error!struct { literal_length_tree: *common.HuffmanTree(u16), distance_tree: *common.HuffmanTree(u16) } {
         const HLIT: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 257;
         const HDIST: u16 = @as(u16, @intCast(try bit_reader.read_bits(5))) + 1;
         const HCLEN: u16 = @as(u16, @intCast(try bit_reader.read_bits(4))) + 4;
@@ -362,7 +362,7 @@ pub const PNGImage = struct {
         const distance_tree = try self.bit_length_list_to_tree(bit_length_list.items[HLIT..], &distance_tree_alphabet);
         return .{ .literal_length_tree = literal_length_tree, .distance_tree = distance_tree };
     }
-    fn inflate_block_fixed(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
+    fn inflate_block_fixed(self: *PNGImage, bit_reader: *common.BitReader, ret: *std.ArrayList(u8)) Error!void {
         PNG_LOG.info("inflate fixed \n", .{});
         var bit_length_list: std.ArrayList(u16) = std.ArrayList(u16).init(self.allocator);
         defer std.ArrayList(u16).deinit(bit_length_list);
@@ -395,7 +395,7 @@ pub const PNGImage = struct {
         distance_tree.deinit();
         self.allocator.destroy(distance_tree);
     }
-    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *utils.BitReader, ret: *std.ArrayList(u8)) Error!void {
+    fn inflate_block_dynamic(self: *PNGImage, bit_reader: *common.BitReader, ret: *std.ArrayList(u8)) Error!void {
         PNG_LOG.info("inflate dynamic \n", .{});
         var trees = try self.decode_trees(bit_reader);
         try self.inflate_block_data(bit_reader, trees.literal_length_tree, trees.distance_tree, ret);
@@ -461,7 +461,7 @@ pub const PNGImage = struct {
                 switch (self.bit_depth) {
                     1 => {
                         const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
-                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
+                        self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 0) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -472,7 +472,7 @@ pub const PNGImage = struct {
                     2 => {
                         const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 3.0)));
-                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
+                        self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 1) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -483,7 +483,7 @@ pub const PNGImage = struct {
                     4 => {
                         const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 15.0)));
-                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
+                        self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 3) {
                             bit_index.* = 7;
                             buffer_index.* += num_bytes_per_pixel;
@@ -493,13 +493,13 @@ pub const PNGImage = struct {
                     },
                     8 => {
                         const rgb: u8 = ret.items[buffer_index.*];
-                        self.data.items[data_index] = utils.Pixel.init(rgb, rgb, rgb, null);
+                        self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
                         const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
                         const gray = @as(u8, @intFromFloat(@as(f64, @floatFromInt(rgb)) * (255.0 / 65535.0)));
-                        self.data.items[data_index] = utils.Pixel.init(gray, gray, gray, null);
+                        self.data.items[data_index] = common.Pixel.init(gray, gray, gray, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -509,11 +509,11 @@ pub const PNGImage = struct {
             2 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = utils.Pixel.init(ret.items[buffer_index.*], ret.items[buffer_index.* + 1], ret.items[buffer_index.* + 2], null);
+                        self.data.items[data_index] = common.Pixel.init(ret.items[buffer_index.*], ret.items[buffer_index.* + 1], ret.items[buffer_index.* + 2], null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = utils.Pixel.init(@as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
+                        self.data.items[data_index] = common.Pixel.init(@as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -531,7 +531,7 @@ pub const PNGImage = struct {
             4 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = utils.Pixel.init(
+                        self.data.items[data_index] = common.Pixel.init(
                             ret.items[buffer_index.*],
                             ret.items[buffer_index.*],
                             ret.items[buffer_index.*],
@@ -542,7 +542,7 @@ pub const PNGImage = struct {
                     16 => {
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
-                        self.data.items[data_index] = utils.Pixel.init(
+                        self.data.items[data_index] = common.Pixel.init(
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
@@ -557,7 +557,7 @@ pub const PNGImage = struct {
             6 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = utils.Pixel.init(
+                        self.data.items[data_index] = common.Pixel.init(
                             ret.items[buffer_index.*],
                             ret.items[buffer_index.* + 1],
                             ret.items[buffer_index.* + 2],
@@ -569,7 +569,7 @@ pub const PNGImage = struct {
                         //TODO figure out scuffed corner in 16 bit alpha images
                         // next 3 bytes are rgb followed by alpha
                         const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
-                        self.data.items[data_index] = utils.Pixel.init(
+                        self.data.items[data_index] = common.Pixel.init(
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
@@ -584,7 +584,7 @@ pub const PNGImage = struct {
         }
     }
     fn data_stream_to_rgb(self: *PNGImage, ret: *std.ArrayList(u8)) Error!void {
-        self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
+        self.data = try std.ArrayList(common.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         var buffer_index: usize = 0;
         var previous_index: usize = 0;
@@ -751,7 +751,7 @@ pub const PNGImage = struct {
 
     pub fn load(self: *PNGImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
-        self.file_data = try utils.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
+        self.file_data = try common.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
         PNG_LOG.info("reading png\n", .{});
         try self.read_sig();
         try self.read_chucks();
@@ -764,7 +764,7 @@ pub const PNGImage = struct {
         self.loaded = true;
     }
 
-    pub fn get(self: *PNGImage, x: usize, y: usize) *utils.Pixel {
+    pub fn get(self: *PNGImage, x: usize, y: usize) *common.Pixel {
         return &self.data.items[y * self.width + x];
     }
 
@@ -786,7 +786,7 @@ pub const PNGImage = struct {
         }
         std.ArrayList(Chunk).deinit(self.chunks);
         self.allocator.free(self.idat_data);
-        std.ArrayList(utils.Pixel).deinit(self.data);
+        std.ArrayList(common.Pixel).deinit(self.data);
     }
 };
 

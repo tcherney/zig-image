@@ -1,8 +1,7 @@
 const std = @import("std");
-const utils = @import("utils.zig");
-const matrix = @import("matrix.zig");
+const common = @import("common");
 
-pub const Pixel = utils.Pixel;
+pub const Pixel = common.Pixel;
 
 inline fn gaussian_kernel(x: i32, y: i32, sigma: f64) f64 {
     const coeff: f64 = 1.0 / (2.0 * std.math.pi * sigma * sigma);
@@ -34,8 +33,8 @@ fn gaussian_kernel_2d(allocator: std.mem.Allocator, sigma: f64) std.mem.Allocato
     }
     return kernel_2d;
 }
-pub const ConvolMat = matrix.Mat(3, f64);
-pub const AffinePosMat = matrix.Mat(3, f64);
+pub const ConvolMat = common.Mat(3, f64);
+pub const AffinePosMat = common.Mat(3, f64);
 pub const ImageCore = struct {
     height: u32,
     width: u32,
@@ -916,14 +915,14 @@ pub const ImageCore = struct {
         var buffer: []u8 = try self.allocator.alloc(u8, self.height * self.width * 3 + padding_size * self.height);
         var buffer_pos = buffer[0..buffer.len];
         defer self.allocator.free(buffer);
-        try utils.write_little_endian(&image_file, 4, size);
-        try utils.write_little_endian(&image_file, 4, 0);
-        try utils.write_little_endian(&image_file, 4, 0x1A);
-        try utils.write_little_endian(&image_file, 4, 12);
-        try utils.write_little_endian(&image_file, 2, self.width);
-        try utils.write_little_endian(&image_file, 2, self.height);
-        try utils.write_little_endian(&image_file, 2, 1);
-        try utils.write_little_endian(&image_file, 2, 24);
+        try common.write_little_endian(&image_file, 4, size);
+        try common.write_little_endian(&image_file, 4, 0);
+        try common.write_little_endian(&image_file, 4, 0x1A);
+        try common.write_little_endian(&image_file, 4, 12);
+        try common.write_little_endian(&image_file, 2, self.width);
+        try common.write_little_endian(&image_file, 2, self.height);
+        try common.write_little_endian(&image_file, 2, 1);
+        try common.write_little_endian(&image_file, 2, 24);
         var i: usize = self.height - 1;
         var j: usize = 0;
         while (i >= 0) {

@@ -1,6 +1,6 @@
 //https://en.wikipedia.org/wiki/BMP_file_format
 const std = @import("std");
-const utils = @import("utils.zig");
+const common = @import("common");
 const image_core = @import("image_core.zig");
 
 pub const ConvolMat = image_core.ConvolMat;
@@ -8,10 +8,10 @@ pub const ImageCore = image_core.ImageCore;
 const BMP_LOG = std.log.scoped(.bmp_image);
 
 pub const BMPImage = struct {
-    file_data: utils.BitReader = undefined,
+    file_data: common.BitReader = undefined,
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
-    data: std.ArrayList(utils.Pixel) = undefined,
+    data: std.ArrayList(common.Pixel) = undefined,
     bmp_file_header: BMPFileHeader = undefined,
     dib_file_header: BMPDIBHeader = undefined,
     width: u32 = undefined,
@@ -22,7 +22,7 @@ pub const BMPImage = struct {
         InvalidBMPHeader,
         InvalidDIBHeader,
         UnsupportedCompressionMethod,
-    } || utils.BitReader.Error || std.mem.Allocator.Error || ImageCore.Error;
+    } || common.BitReader.Error || std.mem.Allocator.Error || ImageCore.Error;
     const BMPFileHeader = struct {
         bmp_type: [2]u8 = [_]u8{0} ** 2,
         file_size: u32 = undefined,
@@ -208,17 +208,17 @@ pub const BMPImage = struct {
     }
     pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
         self.allocator = allocator;
-        self.file_data = try utils.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
+        self.file_data = try common.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
         BMP_LOG.info("reading bmp\n", .{});
         try self.read_BMP_header();
         try self.read_DIB_header();
-        self.data = try std.ArrayList(utils.Pixel).initCapacity(self.allocator, self.height * self.width);
+        self.data = try std.ArrayList(common.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
         try self.read_color_data();
         self.loaded = true;
     }
 
-    pub fn get(self: *const BMPImage, x: usize, y: usize) *utils.Pixel {
+    pub fn get(self: *const BMPImage, x: usize, y: usize) *common.Pixel {
         return &self.data.items[y * self.width + x];
     }
 
@@ -234,7 +234,7 @@ pub const BMPImage = struct {
                             const b = try self.file_data.read(u8);
                             const g = try self.file_data.read(u8);
                             const r = try self.file_data.read(u8);
-                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                            self.data.items[i * self.width + j] = common.Pixel.init(
                                 r,
                                 g,
                                 b,
@@ -247,7 +247,7 @@ pub const BMPImage = struct {
                             const b = try self.file_data.read(u8);
                             const g = try self.file_data.read(u8);
                             const r = try self.file_data.read(u8);
-                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                            self.data.items[i * self.width + j] = common.Pixel.init(
                                 r,
                                 g,
                                 b,
@@ -258,7 +258,7 @@ pub const BMPImage = struct {
                             const b = try self.file_data.read(u8);
                             const g = try self.file_data.read(u8);
                             const r = try self.file_data.read(u8);
-                            self.data.items[i * self.width + j] = utils.Pixel.init(
+                            self.data.items[i * self.width + j] = common.Pixel.init(
                                 r,
                                 g,
                                 b,
@@ -409,7 +409,7 @@ pub const BMPImage = struct {
 
     pub fn deinit(self: *BMPImage) void {
         self.file_data.deinit();
-        std.ArrayList(utils.Pixel).deinit(self.data);
+        std.ArrayList(common.Pixel).deinit(self.data);
     }
 };
 
