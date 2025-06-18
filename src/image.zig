@@ -6,6 +6,9 @@ const jpeg_image = @import("jpeg_image.zig");
 const png_image = @import("png_image.zig");
 const bmp_image = @import("bmp_image.zig");
 
+//TODO replace generic with union
+//TODO can completely overhaul the use of image_core, would no longer have to create another object in order to use core functions
+
 pub fn Image(comptime T: type) type {
     return T;
 }
