@@ -2,12 +2,12 @@
 const std = @import("std");
 const common = @import("common");
 const image_core = @import("image_core.zig");
+const _image = @import("image.zig");
 
-pub const ConvolMat = image_core.ConvolMat;
-pub const ImageCore = image_core.ImageCore;
+pub const Image = _image.Image;
 const BMP_LOG = std.log.scoped(.bmp_image);
 
-pub const BMPImage = struct {
+pub const BMPBuilder = struct {
     file_data: common.BitReader = undefined,
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
@@ -22,7 +22,7 @@ pub const BMPImage = struct {
         InvalidBMPHeader,
         InvalidDIBHeader,
         UnsupportedCompressionMethod,
-    } || common.BitReader.Error || std.mem.Allocator.Error || ImageCore.Error;
+    } || common.BitReader.Error || std.mem.Allocator.Error || image_core.Error;
     const BMPFileHeader = struct {
         bmp_type: [2]u8 = [_]u8{0} ** 2,
         file_size: u32 = undefined,
@@ -91,122 +91,7 @@ pub const BMPImage = struct {
         V5 = 124,
     };
 
-    pub fn convert_grayscale(self: *BMPImage) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().grayscale();
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-            self.grayscale = true;
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn edge_detection(self: *BMPImage) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().edge_detection();
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn convol(self: *BMPImage, kernel: ConvolMat) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().convol(kernel);
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-
-    pub fn fft_convol(self: *BMPImage, kernel: ConvolMat) Error!void {
-        if (self.loaded) {
-            var core = self.image_core();
-            core.is_grayscale = self.grayscale;
-            const data_copy = try core.fft_convol(kernel);
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-
-    pub fn histogram_equalization(self: *BMPImage) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().histogram_equalization();
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-
-    pub fn fft_rep(self: *BMPImage) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().fft_rep();
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn reflection(self: *BMPImage, comptime axis: @Type(.enum_literal)) Error!void {
-        if (self.loaded) {
-            const data_copy = try self.image_core().reflection(axis);
-            defer self.allocator.free(data_copy);
-            for (0..self.data.items.len) |i| {
-                self.data.items[i].v = data_copy[i].v;
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn shear(self: *BMPImage, c_x: f64, c_y: f64) Error!void {
-        if (self.loaded) {
-            var core = self.image_core();
-            const data = try core.shear(c_x, c_y);
-            const data_copy = data.data;
-            self.width = data.width;
-            self.height = data.height;
-            defer self.allocator.free(data_copy);
-            self.data.clearRetainingCapacity();
-            for (0..data_copy.len) |i| {
-                try self.data.append(data_copy[i]);
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn rotate(self: *BMPImage, degrees: f64) Error!void {
-        if (self.loaded) {
-            var core = self.image_core();
-            const data = try core.rotate(degrees);
-            const data_copy = data.data;
-            self.width = data.width;
-            self.height = data.height;
-            defer self.allocator.free(data_copy);
-            self.data.clearRetainingCapacity();
-            for (0..data_copy.len) |i| {
-                try self.data.append(data_copy[i]);
-            }
-        } else {
-            return Error.NotLoaded;
-        }
-    }
-    pub fn load(self: *BMPImage, file_name: []const u8, allocator: std.mem.Allocator) Error!void {
+    pub fn load(self: *BMPBuilder, file_name: []const u8, allocator: std.mem.Allocator) Error!Image {
         self.allocator = allocator;
         self.file_data = try common.BitReader.init(.{ .file_name = file_name, .allocator = self.allocator, .little_endian = true });
         BMP_LOG.info("reading bmp\n", .{});
@@ -216,13 +101,17 @@ pub const BMPImage = struct {
         self.data.expandToCapacity();
         try self.read_color_data();
         self.loaded = true;
+        return Image{
+            .allocator = self.allocator,
+            .data = self.data,
+            .grayscale = self.grayscale,
+            .height = self.height,
+            .width = self.width,
+            .loaded = true,
+        };
     }
 
-    pub fn get(self: *const BMPImage, x: usize, y: usize) *common.Pixel {
-        return &self.data.items[y * self.width + x];
-    }
-
-    fn read_color_data(self: *BMPImage) Error!void {
+    fn read_color_data(self: *BMPBuilder) Error!void {
         const padding_size = self.width % 4;
         var i: usize = self.height - 1;
         var j: usize = 0;
@@ -279,7 +168,7 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_DIB_V2_header(self: *BMPImage) Error!void {
+    fn read_DIB_V2_header(self: *BMPBuilder) Error!void {
         try self.read_DIB_V1_header();
         self.dib_file_header.red_mask = try self.file_data.read(u32);
         self.dib_file_header.green_mask = try self.file_data.read(u32);
@@ -287,13 +176,13 @@ pub const BMPImage = struct {
         BMP_LOG.info("red mask {d}, green mask {d}, blue mask {d}\n", .{ self.dib_file_header.red_mask, self.dib_file_header.green_mask, self.dib_file_header.blue_mask });
     }
 
-    fn read_DIB_V3_header(self: *BMPImage) Error!void {
+    fn read_DIB_V3_header(self: *BMPBuilder) Error!void {
         try self.read_DIB_V2_header();
         self.dib_file_header.alpha_mask = try self.file_data.read(u32);
         BMP_LOG.info("alpha mask {d}\n", .{self.dib_file_header.alpha_mask});
     }
 
-    fn read_DIB_V4_header(self: *BMPImage) Error!void {
+    fn read_DIB_V4_header(self: *BMPBuilder) Error!void {
         try self.read_DIB_V3_header();
         self.dib_file_header.color_space_type = try self.file_data.read(u32);
         self.dib_file_header.ciexyz = BMPDIBHeader.CIEXYZ{};
@@ -317,7 +206,7 @@ pub const BMPImage = struct {
         self.dib_file_header.gamma_blue = try self.file_data.read(u32);
     }
 
-    fn read_DIB_V5_header(self: *BMPImage) Error!void {
+    fn read_DIB_V5_header(self: *BMPBuilder) Error!void {
         try self.read_DIB_V4_header();
         self.dib_file_header.intent = try self.file_data.read(u32);
         self.dib_file_header.profile_data = try self.file_data.read(u32);
@@ -325,7 +214,7 @@ pub const BMPImage = struct {
         self.dib_file_header.reserved = try self.file_data.read(u32);
     }
 
-    fn read_DIB_V1_header(self: *BMPImage) Error!void {
+    fn read_DIB_V1_header(self: *BMPBuilder) Error!void {
         self.width = try self.file_data.read(u32);
         self.height = try self.file_data.read(u32);
         self.dib_file_header.color_planes = try self.file_data.read(u16);
@@ -342,7 +231,7 @@ pub const BMPImage = struct {
         BMP_LOG.info("width {d}, height {d}, color_planes {d}, bpp {d}, compression_method {}, image_size {d}, horizontal_res {d}, vertical_res {d}, num_col_palette {d}, important_colors {d}, \n", .{ self.width, self.height, self.dib_file_header.color_planes, self.dib_file_header.bpp, self.dib_file_header.compression_method, self.dib_file_header.image_size, self.dib_file_header.horizontal_res, self.dib_file_header.vertical_res, self.dib_file_header.num_col_palette, self.dib_file_header.important_colors });
     }
 
-    fn read_DIB_header(self: *BMPImage) Error!void {
+    fn read_DIB_header(self: *BMPBuilder) Error!void {
         self.dib_file_header = BMPDIBHeader{};
         self.dib_file_header.size = try self.file_data.read(u32);
         BMP_LOG.info("header_size {d}\n", .{self.dib_file_header.size});
@@ -376,7 +265,7 @@ pub const BMPImage = struct {
         }
     }
 
-    fn read_BMP_header(self: *BMPImage) Error!void {
+    fn read_BMP_header(self: *BMPBuilder) Error!void {
         // type
         self.bmp_file_header.bmp_type[0] = try self.file_data.read(u8);
         self.bmp_file_header.bmp_type[1] = try self.file_data.read(u8);
@@ -396,28 +285,15 @@ pub const BMPImage = struct {
         BMP_LOG.info("offset {d}\n", .{self.bmp_file_header.offset});
     }
 
-    pub fn image_core(self: *BMPImage) ImageCore {
-        return ImageCore.init(self.allocator, self.width, self.height, self.data.items);
-    }
-
-    pub fn write_BMP(self: *BMPImage, file_name: []const u8) Error!void {
-        if (!self.loaded) {
-            return Error.NotLoaded;
-        }
-        try self.image_core().write_BMP(file_name);
-    }
-
-    pub fn deinit(self: *BMPImage) void {
+    pub fn deinit(self: *BMPBuilder) void {
         self.file_data.deinit();
-        std.ArrayList(common.Pixel).deinit(self.data);
     }
 };
 
 test "CAT" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.write_BMP("test_output/os.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -427,8 +303,7 @@ test "CAT" {
 test "HISTOGRAM EQUALIZATION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.histogram_equalization();
     try image.write_BMP("test_output/cat_histogram_equal_bmp.bmp");
     image.deinit();
@@ -439,9 +314,8 @@ test "HISTOGRAM EQUALIZATION" {
 test "FFT CONVOL" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
-    try image.fft_convol(try ConvolMat.edge_detection());
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
+    try image.fft_convol(try Image.ConvolMat.edge_detection());
     try image.write_BMP("test_output/cat_fft_edge_detection_bmp.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -451,8 +325,7 @@ test "FFT CONVOL" {
 test "FFT REP" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.fft_rep();
     try image.write_BMP("test_output/cat_fft_rep_bmp.bmp");
     image.deinit();
@@ -463,8 +336,7 @@ test "FFT REP" {
 test "EDGE DETECTION" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.edge_detection();
     try image.write_BMP("test_output/cat_edge_detection_bmp.bmp");
     image.deinit();
@@ -475,8 +347,7 @@ test "EDGE DETECTION" {
 test "SHEAR" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.shear(0.5, 0);
     try image.write_BMP("test_output/cat_shear_bmp.bmp");
     image.deinit();
@@ -487,8 +358,7 @@ test "SHEAR" {
 test "ROTATE" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.rotate(45);
     try image.write_BMP("test_output/cat_rotate_bmp.bmp");
     image.deinit();
@@ -499,8 +369,7 @@ test "ROTATE" {
 test "CAT_REFLECT_X" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.reflection(.x);
     try image.write_BMP("test_output/cat_reflectx_bmp.bmp");
     image.deinit();
@@ -511,8 +380,7 @@ test "CAT_REFLECT_X" {
 test "CAT_REFLECT_Y" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.reflection(.y);
     try image.write_BMP("test_output/cat_reflecty_bmp.bmp");
     image.deinit();
@@ -523,8 +391,7 @@ test "CAT_REFLECT_Y" {
 test "CAT_REFLECT_XY" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/cat.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/cat.bmp", .BMP);
     try image.reflection(.xy);
     try image.write_BMP("test_output/cat_reflectxy_bmp.bmp");
     image.deinit();
@@ -536,8 +403,7 @@ test "CAT_REFLECT_XY" {
 test "V3" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/basic0.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/basic0.bmp", .BMP);
     try image.write_BMP("test_output/v3.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
@@ -548,8 +414,7 @@ test "V3" {
 test "V5" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = BMPImage{};
-    try image.load("tests/bmp/basic1.bmp", allocator);
+    var image = try Image.init_load(allocator, "tests/bmp/basic1.bmp", .BMP);
     try image.write_BMP("test_output/v5.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
