@@ -1,18 +1,14 @@
 //wrapper struct to provide generic image struct
 const std = @import("std");
 const common = @import("common");
-const image_core = @import("image_core.zig");
+pub const image_core = @import("image_core.zig");
 const jpeg_image = @import("jpeg_image.zig");
 const png_image = @import("png_image.zig");
 const bmp_image = @import("bmp_image.zig");
 
-//TODO replace generic with union
-//TODO can completely overhaul the use of image_core, would no longer have to create another object in order to use core functions
-
 pub const Allocator = std.mem.Allocator;
 pub const ByteStream = common.ByteStream;
 pub const BitReader = common.BitReader;
-pub const ImageCore = image_core.ImageCore;
 pub const Pixel = common.Pixel;
 pub const Mat = common.Mat;
 
@@ -28,7 +24,7 @@ pub const Image = struct {
     height: u32 = undefined,
     grayscale: bool = false,
     pub const ConvolMat = image_core.ConvolMat;
-    pub const Error = error{FFTPow2} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || ConvolMat.Error || ImageBuilder.Error;
+    pub const Error = image_core.Error || ImageBuilder.Error;
     pub const ImageType = enum {
         JPEG,
         PNG,
