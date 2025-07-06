@@ -2,9 +2,9 @@
 const std = @import("std");
 const common = @import("common");
 pub const image_core = @import("image_core.zig");
-const jpeg_image = @import("jpeg_image.zig");
-const png_image = @import("png_image.zig");
-const bmp_image = @import("bmp_image.zig");
+pub const jpeg_image = @import("jpeg_image.zig");
+pub const png_image = @import("png_image.zig");
+pub const bmp_image = @import("bmp_image.zig");
 
 pub const Allocator = std.mem.Allocator;
 pub const ByteStream = common.ByteStream;

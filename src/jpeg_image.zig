@@ -1,11 +1,14 @@
 //https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&index=1
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("common");
 const image_core = @import("image_core.zig");
 const _image = @import("image.zig");
 
 pub const Image = _image.Image;
 const JPEG_LOG = std.log.scoped(.jpeg_image);
+
+pub const START_NUM_THREADS: usize = if (builtin.os.tag == .emscripten or builtin.os.tag == .wasi) 0 else 10;
 
 const JPEG_HEADERS = enum(u8) {
     HEADER = 0xFF,
@@ -1118,7 +1121,7 @@ pub const JPEGBuilder = struct {
 
         //JPEG_LOG.info("block height {d}\n", .{self._block_height});
         //try common.timer_start();
-        var num_threads: usize = 10;
+        var num_threads: usize = START_NUM_THREADS;
         while (num_threads > 0 and (self.block_height / num_threads) < num_threads) {
             num_threads -= 2;
         }
@@ -1126,7 +1129,7 @@ pub const JPEGBuilder = struct {
         if (num_threads == 0) {
             // single thread
             try JPEGBuilder.thread_compute(self, 0, self.block_height);
-        } else {
+        } else if (START_NUM_THREADS != 0) {
             // multi thread
             const data_split = if ((self.block_height / num_threads) % 2 == 1) (self.block_height / num_threads) + 1 else self.block_height / num_threads;
             //JPEG_LOG.info("data split {d} block_height {d}\n", .{ data_split, self._block_height });
