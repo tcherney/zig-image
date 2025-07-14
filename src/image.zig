@@ -30,6 +30,7 @@ pub const Image = struct {
         PNG,
         BMP,
     };
+    pub const ScaleOption = enum { BICUBIC, BILINEAR, NN };
     pub const ImageBuilder = union(enum) {
         jpeg: JPEGBuilder,
         png: PNGBuilder,
@@ -166,9 +167,13 @@ pub const Image = struct {
         }
     }
 
-    pub fn scale(self: *Image, width: u32, height: u32) Error!void {
+    pub fn scale(self: *Image, width: u32, height: u32, scale_option: ScaleOption) Error!void {
         if (self.loaded) {
-            const data = try image_core.bicubic(self.allocator, self.data.items, self.width, self.height, width, height);
+            const data = switch (scale_option) {
+                .BICUBIC => try image_core.bicubic(self.allocator, self.data.items, self.width, self.height, width, height),
+                .BILINEAR => try image_core.bilinear(self.allocator, self.data.items, self.width, self.height, width, height),
+                .NN => try image_core.nearest_neighbor(self.allocator, self.data.items, self.width, self.height, width, height),
+            };
             self.width = width;
             self.height = height;
             defer self.allocator.free(data);
