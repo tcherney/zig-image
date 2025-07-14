@@ -136,11 +136,13 @@ pub fn bilinear(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_
 }
 fn bicubic_get_pixel(data: []Pixel, width: u32, height: u32, y: i64, x: i64) BicubicPixel {
     if (x < width and y < height and x > 0 and y > 0) {
+        const y_usize = if (@sizeOf(usize) == 8) @as(usize, @bitCast(y)) else @as(usize, @bitCast(@as(i32, @intCast(y))));
+        const x_usize = if (@sizeOf(usize) == 8) @as(usize, @bitCast(x)) else @as(usize, @bitCast(@as(i32, @intCast(x))));
         return BicubicPixel{
-            .r = @as(f64, @floatFromInt(data[@as(usize, @bitCast(y)) * width + @as(usize, @bitCast(x))].get_r())),
-            .g = @as(f64, @floatFromInt(data[@as(usize, @bitCast(y)) * width + @as(usize, @bitCast(x))].get_g())),
-            .b = @as(f64, @floatFromInt(data[@as(usize, @bitCast(y)) * width + @as(usize, @bitCast(x))].get_b())),
-            .a = @as(f64, @floatFromInt(data[@as(usize, @bitCast(y)) * width + @as(usize, @bitCast(x))].get_a())),
+            .r = @as(f64, @floatFromInt(data[y_usize * width + x_usize].get_r())),
+            .g = @as(f64, @floatFromInt(data[y_usize * width + x_usize].get_g())),
+            .b = @as(f64, @floatFromInt(data[y_usize * width + x_usize].get_b())),
+            .a = @as(f64, @floatFromInt(data[y_usize * width + x_usize].get_a())),
         };
     } else {
         return BicubicPixel{};
@@ -162,7 +164,8 @@ pub fn bicubic(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_w
             const dy: f64 = height_scale * @as(f64, @floatFromInt(y)) - @as(f64, @floatFromInt(src_y));
             var new_pixel: BicubicPixel = BicubicPixel{};
             for (0..4) |jj| {
-                const z: i64 = src_y + @as(i64, @bitCast(jj)) - 1;
+                const jj_i64 = if (@sizeOf(usize) == 8) @as(i64, @bitCast(jj)) else @as(i64, @bitCast(@as(u64, @intCast(jj))));
+                const z: i64 = src_y + jj_i64 - 1;
                 const a0 = bicubic_get_pixel(data, width, height, z, src_x);
                 const d0 = bicubic_get_pixel(data, width, height, z, src_x - 1).sub(a0);
                 const d2 = bicubic_get_pixel(data, width, height, z, src_x + 1).sub(a0);

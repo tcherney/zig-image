@@ -166,6 +166,21 @@ pub const Image = struct {
         }
     }
 
+    pub fn scale(self: *Image, width: u32, height: u32) Error!void {
+        if (self.loaded) {
+            const data = try image_core.bicubic(self.allocator, self.data.items, self.width, self.height, width, height);
+            self.width = width;
+            self.height = height;
+            defer self.allocator.free(data);
+            self.data.clearRetainingCapacity();
+            for (0..data.len) |i| {
+                try self.data.append(data[i]);
+            }
+        } else {
+            return Error.NotLoaded;
+        }
+    }
+
     pub fn fft_convol(self: *Image, kernel: ConvolMat) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.fft_convol(self.allocator, self.data.items, self.width, self.height, self.grayscale, kernel);
