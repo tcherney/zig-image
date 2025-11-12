@@ -55,6 +55,8 @@ pub const Image = struct {
             .JPEG => {
                 builder = .{ .jpeg = JPEGBuilder{} };
                 ret = try builder.load(path, allocator);
+                std.debug.print("Width: {d}\n", .{ret.width});
+                std.debug.print("Height: {d}\n", .{ret.height});
             },
             .PNG => {
                 builder = .{ .png = PNGBuilder{} };

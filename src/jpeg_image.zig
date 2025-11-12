@@ -484,14 +484,40 @@ pub const JPEGBuilder = struct {
     fn skippable_header(_: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
         _ = try bit_reader.read(u16);
     }
-    fn read_appn(_: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
+    fn read_appn(_: *JPEGBuilder, header: JPEG_HEADERS, bit_reader: *common.BitReader) Error!void {
         const length: u16 = try bit_reader.read(u16);
         if (length < 2) {
             return Error.InvalidHeader;
         }
 
-        for (0..length - 2) |_| {
-            _ = try bit_reader.read(u8);
+        if (header == JPEG_HEADERS.APP1) {
+            var buf: [4096]u8 = undefined;
+            const pre_index = bit_reader.byte_stream.index;
+            std.debug.print("pre index {d} segment length {d}\n", .{ pre_index, length - 2 });
+            for (0..length - 2) |i| {
+                buf[i] = try bit_reader.read(u8);
+            }
+            const post_index = bit_reader.byte_stream.index;
+            const buf_slice = buf[0 .. length - 2];
+            if (std.mem.indexOf(u8, buf_slice, "Exif")) |indx| {
+                const byte_order = buf_slice[indx + 6 .. indx + 8];
+                const offset_start = indx + 6;
+                std.debug.print("{s} offset_start {d}\n", .{ byte_order, offset_start });
+                if (buf_slice[indx + 8] == 0 and buf_slice[indx + 9] == 0x2A) {
+                    const ifd_ptr = @as(u32, buf_slice[indx + 10]) << 24 | @as(u32, buf_slice[indx + 11]) << 16 | @as(u32, buf_slice[indx + 12]) << 8 | @as(u32, buf_slice[indx + 13]);
+                    std.debug.print("First ifd ptr {d}\n", .{ifd_ptr});
+                    const num_tags = @as(u16, buf_slice[offset_start + ifd_ptr]) << 8 | @as(u16, buf_slice[offset_start + ifd_ptr + 1]);
+                    std.debug.print("num tags {d} {d} {d}\n", .{ num_tags, buf_slice[offset_start + ifd_ptr], buf_slice[offset_start + ifd_ptr + 1] });
+                } else {
+                    std.debug.print("Missing TIFF marker\n", .{});
+                }
+            }
+            std.debug.print("APP1 header \n{s}\n end index {d}\n", .{ buf_slice, post_index });
+            bit_reader.byte_stream.index = post_index;
+        } else {
+            for (0..length - 2) |_| {
+                _ = try bit_reader.read(u8);
+            }
         }
     }
     fn read_headers(self: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
@@ -510,7 +536,7 @@ pub const JPEGBuilder = struct {
             if (last == @intFromEnum(JPEG_HEADERS.HEADER)) {
                 if (current <= @intFromEnum(JPEG_HEADERS.APP15) and current >= @intFromEnum(JPEG_HEADERS.APP0)) {
                     JPEG_LOG.info("Application header {x} {x}\n", .{ last, current });
-                    try self.read_appn(bit_reader);
+                    try self.read_appn(@enumFromInt(current), bit_reader);
                 } else if (current == @intFromEnum(JPEG_HEADERS.COM)) {
                     // comment
                     try self.skippable_header(bit_reader);
