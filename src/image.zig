@@ -25,6 +25,7 @@ pub const Image = struct {
     grayscale: bool = false,
     pub const ConvolMat = image_core.ConvolMat;
     pub const Error = image_core.Error || ImageBuilder.Error;
+    pub const CoreError = image_core.Error || error{NotLoaded};
     pub const ImageType = enum {
         JPEG,
         PNG,
@@ -54,9 +55,8 @@ pub const Image = struct {
         switch (image_type) {
             .JPEG => {
                 builder = .{ .jpeg = JPEGBuilder{} };
+                defer builder.deinit();
                 ret = try builder.load(path, allocator);
-                std.debug.print("Width: {d}\n", .{ret.width});
-                std.debug.print("Height: {d}\n", .{ret.height});
             },
             .PNG => {
                 builder = .{ .png = PNGBuilder{} };
@@ -125,7 +125,7 @@ pub const Image = struct {
         }
     }
 
-    pub fn rotate(self: *Image, degrees: f64) Error!void {
+    pub fn rotate(self: *Image, degrees: f64) CoreError!void {
         if (self.loaded) {
             const data = try image_core.rotate(self.allocator, self.data.items, self.width, self.height, degrees);
             const data_copy = data.data;
@@ -137,7 +137,7 @@ pub const Image = struct {
                 try self.data.append(data_copy[i]);
             }
         } else {
-            return Error.NotLoaded;
+            return CoreError.NotLoaded;
         }
     }
 

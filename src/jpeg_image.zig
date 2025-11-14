@@ -139,6 +139,87 @@ const QuantizationTable = struct {
     }
 };
 
+const ImageFileDirectory = struct {
+    num_tags: u16,
+    tags: []Tag,
+    const Tag = struct {
+        id: u16,
+        tag_type: TagType,
+        num_comp: u32,
+        tag_ptr: u32,
+        value: ?TagValue,
+        const TagType = enum(u16) {
+            Byte = 1,
+            ASCII = 2,
+            Short = 3,
+            Long = 4,
+            Rational = 5,
+            Undefined = 7,
+            SByte = 8,
+            SShort = 9,
+            SLong = 10,
+            SRational = 11,
+            SFloat = 12,
+            Double = 13,
+        };
+        const TagValue = union(enum) {
+            byte: u8,
+            ascii: []u8,
+            short: u16,
+            long: u32,
+            rational: struct { u32, u32 },
+            undefined: void,
+            sbyte: i8,
+            sshort: i16,
+            slong: i32,
+            srational: struct { i32, i32 },
+            sfloat: f32,
+            double: f64,
+        };
+        pub fn init(id: u16, tag_type: TagType, num_comp: u32, tag_ptr: u32, value: ?TagValue) Tag {
+            return .{
+                .id = id,
+                .tag_type = tag_type,
+                .num_comp = num_comp,
+                .tag_ptr = tag_ptr,
+                .value = value,
+            };
+        }
+    };
+    pub fn init(num_tags: u16, allocator: std.mem.Allocator) std.mem.Allocator.Error!ImageFileDirectory {
+        var tags = try allocator.alloc(Tag, num_tags);
+        for (0..tags.len) |i| {
+            tags[i] = Tag.init(0, .Undefined, 0, 0, null);
+        }
+        return .{ .num_tags = num_tags, .tags = tags };
+    }
+
+    pub fn deinit(self: *ImageFileDirectory, allocator: std.mem.Allocator) void {
+        for (0..self.num_tags) |i| {
+            if (self.tags[i].value != null and self.tags[i].value.? == .ascii) {
+                allocator.free(self.tags[i].value.?.ascii);
+            }
+        }
+        allocator.free(self.tags);
+    }
+
+    pub fn print(self: *ImageFileDirectory) void {
+        JPEG_LOG.info("IFD: num_tags {d}\n", .{self.num_tags});
+        for (0..self.num_tags) |i| {
+            JPEG_LOG.info("Tag: id {d}, tag_type {any}, num_comp {d}, tag_ptr {d} ", .{ self.tags[i].id, self.tags[i].tag_type, self.tags[i].num_comp, self.tags[i].tag_ptr });
+            if (self.tags[i].value != null) {
+                if (self.tags[i].value.? == .ascii) {
+                    JPEG_LOG.info(" value {s}\n", .{self.tags[i].value.?.ascii});
+                } else {
+                    JPEG_LOG.info(" value {any}\n", .{self.tags[i].value});
+                }
+            } else {
+                JPEG_LOG.info("\n", .{});
+            }
+        }
+    }
+};
+
 const ColorComponent = struct {
     horizontal_sampling_factor: u8 = 1,
     vertical_sampling_factor: u8 = 1,
@@ -147,6 +228,13 @@ const ColorComponent = struct {
     huffman_act_table_id: u8 = 0,
     used_in_frame: bool = false,
     used_in_scan: bool = false,
+};
+
+const Orientation = enum(u16) {
+    None = 1,
+    Rotate_180 = 3,
+    Rotate_90 = 6,
+    Rotate_270 = 8,
 };
 
 //TODO vectorize
@@ -211,6 +299,7 @@ pub const JPEGBuilder = struct {
     horizontal_sampling_factor: u32 = 1,
     vertical_sampling_factor: u32 = 1,
     grayscale: bool = false,
+    orientation: Orientation = .None,
     pub const Error = error{
         InvalidHeader,
         InvalidDQTID,
@@ -484,35 +573,89 @@ pub const JPEGBuilder = struct {
     fn skippable_header(_: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
         _ = try bit_reader.read(u16);
     }
-    fn read_appn(_: *JPEGBuilder, header: JPEG_HEADERS, bit_reader: *common.BitReader) Error!void {
+    fn read_appn(self: *JPEGBuilder, header: JPEG_HEADERS, bit_reader: *common.BitReader) Error!void {
         const length: u16 = try bit_reader.read(u16);
         if (length < 2) {
             return Error.InvalidHeader;
         }
 
         if (header == JPEG_HEADERS.APP1) {
-            var buf: [4096]u8 = undefined;
+            var buf: [4]u8 = [_]u8{0} ** 4;
             const pre_index = bit_reader.byte_stream.index;
-            std.debug.print("pre index {d} segment length {d}\n", .{ pre_index, length - 2 });
-            for (0..length - 2) |i| {
-                buf[i] = try bit_reader.read(u8);
-            }
-            const post_index = bit_reader.byte_stream.index;
-            const buf_slice = buf[0 .. length - 2];
-            if (std.mem.indexOf(u8, buf_slice, "Exif")) |indx| {
-                const byte_order = buf_slice[indx + 6 .. indx + 8];
-                const offset_start = indx + 6;
-                std.debug.print("{s} offset_start {d}\n", .{ byte_order, offset_start });
-                if (buf_slice[indx + 8] == 0 and buf_slice[indx + 9] == 0x2A) {
-                    const ifd_ptr = @as(u32, buf_slice[indx + 10]) << 24 | @as(u32, buf_slice[indx + 11]) << 16 | @as(u32, buf_slice[indx + 12]) << 8 | @as(u32, buf_slice[indx + 13]);
-                    std.debug.print("First ifd ptr {d}\n", .{ifd_ptr});
-                    const num_tags = @as(u16, buf_slice[offset_start + ifd_ptr]) << 8 | @as(u16, buf_slice[offset_start + ifd_ptr + 1]);
-                    std.debug.print("num tags {d} {d} {d}\n", .{ num_tags, buf_slice[offset_start + ifd_ptr], buf_slice[offset_start + ifd_ptr + 1] });
-                } else {
-                    std.debug.print("Missing TIFF marker\n", .{});
+            JPEG_LOG.info("pre index {d} segment length {d}\n", .{ pre_index, length - 2 });
+            var have_exif = false;
+            for (0..length - 2) |_| {
+                buf[0] = buf[1];
+                buf[1] = buf[2];
+                buf[2] = buf[3];
+                buf[3] = try bit_reader.read(u8);
+                if (std.mem.eql(u8, &buf, "Exif")) {
+                    have_exif = true;
+                    break;
                 }
             }
-            std.debug.print("APP1 header \n{s}\n end index {d}\n", .{ buf_slice, post_index });
+            const post_index = pre_index + length - 2;
+            if (have_exif) {
+                bit_reader.byte_stream.index += 2;
+                const offset = bit_reader.byte_stream.index;
+
+                const byte_order = [_]u8{ try bit_reader.read(u8), try bit_reader.read(u8) };
+                const old_endian = bit_reader.little_endian;
+                if (std.mem.eql(u8, &byte_order, "MM")) {
+                    bit_reader.little_endian = false;
+                } else {
+                    bit_reader.little_endian = true;
+                }
+                const tiff_tag = [_]u8{ try bit_reader.read(u8), try bit_reader.read(u8) };
+                JPEG_LOG.info("byte order {s} tiff 0x{X},0x{X}\n", .{ byte_order, tiff_tag[0], tiff_tag[1] });
+                if (tiff_tag[0] == 0 and tiff_tag[1] == 0x2A) {
+                    const ifd_ptr = try bit_reader.read(u32);
+                    JPEG_LOG.info("First ifd ptr {d}\n", .{ifd_ptr});
+                    const num_tags = try bit_reader.read(u16);
+                    JPEG_LOG.info("num tags {d}\n", .{num_tags});
+                    var ifd = try ImageFileDirectory.init(num_tags, self.allocator);
+                    defer ifd.deinit(self.allocator);
+                    for (0..num_tags) |i| {
+                        ifd.tags[i].id = try bit_reader.read(u16);
+                        const tag_type = try bit_reader.read(u16);
+                        if (tag_type <= 13) {
+                            ifd.tags[i].tag_type = @enumFromInt(tag_type);
+                        } else {
+                            ifd.tags[i].tag_type = .Undefined;
+                        }
+                        ifd.tags[i].num_comp = try bit_reader.read(u32);
+
+                        switch (ifd.tags[i].tag_type) {
+                            .ASCII => {
+                                ifd.tags[i].tag_ptr = try bit_reader.read(u32);
+                                const old_indx = bit_reader.byte_stream.index;
+                                bit_reader.byte_stream.index = offset + ifd.tags[i].tag_ptr;
+                                ifd.tags[i].value = .{ .ascii = try self.allocator.alloc(u8, ifd.tags[i].num_comp) };
+                                for (0..ifd.tags[i].num_comp) |j| {
+                                    ifd.tags[i].value.?.ascii[j] = try bit_reader.read(u8);
+                                }
+                                bit_reader.byte_stream.index = old_indx;
+                            },
+                            .Long => {
+                                ifd.tags[i].value = .{ .long = try bit_reader.read(u32) };
+                            },
+                            .Short => {
+                                ifd.tags[i].value = .{ .short = try bit_reader.read(u16) };
+                                if (ifd.tags[i].id == 274) {
+                                    self.orientation = @enumFromInt(ifd.tags[i].value.?.short);
+                                }
+                                _ = try bit_reader.read(u16);
+                            },
+                            else => {},
+                        }
+                    }
+                    ifd.print();
+                    bit_reader.little_endian = old_endian;
+                } else {
+                    JPEG_LOG.info("Missing TIFF marker\n", .{});
+                }
+            }
+            JPEG_LOG.info("APP1 header end index {d}\n", .{post_index});
             bit_reader.byte_stream.index = post_index;
         } else {
             for (0..length - 2) |_| {
@@ -1213,7 +1356,7 @@ pub const JPEGBuilder = struct {
         JPEG_LOG.info("finished processing jpeg\n", .{});
         self.loaded = true;
         bit_reader.deinit();
-        return Image{
+        var ret_image = Image{
             .allocator = allocator,
             .data = self.data,
             .grayscale = self.grayscale,
@@ -1221,6 +1364,19 @@ pub const JPEGBuilder = struct {
             .width = self.width,
             .loaded = true,
         };
+        switch (self.orientation) {
+            .None => {},
+            .Rotate_180 => {
+                try ret_image.rotate(180);
+            },
+            .Rotate_90 => {
+                try ret_image.rotate(90);
+            },
+            .Rotate_270 => {
+                try ret_image.rotate(270);
+            },
+        }
+        return ret_image;
     }
 };
 
