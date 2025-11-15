@@ -606,7 +606,14 @@ pub const JPEGBuilder = struct {
                 } else {
                     bit_reader.little_endian = true;
                 }
-                const tiff_tag = [_]u8{ try bit_reader.read(u8), try bit_reader.read(u8) };
+                var tiff_tag = [_]u8{ 0, 0 };
+                for (0..tiff_tag.len) |i| {
+                    if (bit_reader.little_endian) {
+                        tiff_tag[tiff_tag.len - 1 - i] = try bit_reader.read(u8);
+                    } else {
+                        tiff_tag[i] = try bit_reader.read(u8);
+                    }
+                }
                 JPEG_LOG.info("byte order {s} tiff 0x{X},0x{X}\n", .{ byte_order, tiff_tag[0], tiff_tag[1] });
                 if (tiff_tag[0] == 0 and tiff_tag[1] == 0x2A) {
                     const ifd_ptr = try bit_reader.read(u32);
@@ -654,9 +661,9 @@ pub const JPEGBuilder = struct {
                 } else {
                     JPEG_LOG.info("Missing TIFF marker\n", .{});
                 }
+                bit_reader.byte_stream.index = post_index;
             }
             JPEG_LOG.info("APP1 header end index {d}\n", .{post_index});
-            bit_reader.byte_stream.index = post_index;
         } else {
             for (0..length - 2) |_| {
                 _ = try bit_reader.read(u8);
@@ -1349,13 +1356,13 @@ pub const JPEGBuilder = struct {
 
     pub fn load(self: *JPEGBuilder, file_name: []const u8, allocator: std.mem.Allocator) Error!Image {
         var bit_reader: common.BitReader = try common.BitReader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
+        defer bit_reader.deinit();
         self.allocator = allocator;
         try self.read_JPEG(&bit_reader);
         JPEG_LOG.info("finished reading jpeg\n", .{});
         try self.gen_rgb_data();
         JPEG_LOG.info("finished processing jpeg\n", .{});
         self.loaded = true;
-        bit_reader.deinit();
         var ret_image = Image{
             .allocator = allocator,
             .data = self.data,
