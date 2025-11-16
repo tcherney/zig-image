@@ -106,21 +106,30 @@ const zig_zag_map: [64]u8 = [_]u8{
     53, 60, 61, 54, 47, 55, 62, 63,
 };
 
+var scratch: std.ArrayList(u8) = undefined;
+
 const HuffmanTable = struct {
     symbols: [176]u8 = [_]u8{0} ** 176,
     offsets: [17]u8 = [_]u8{0} ** 17,
     set: bool = false,
     codes: [176]u32 = [_]u32{0} ** 176,
-    pub fn print(self: *const HuffmanTable) void {
+    pub fn print(self: *const HuffmanTable) std.mem.Allocator.Error!void {
         if (self.set) {
-            JPEG_LOG.info("Symbols: \n", .{});
+            scratch.clearRetainingCapacity();
+            try scratch.writer().print("Symbols: \n", .{});
+            var total_codes: u8 = 0;
+
             for (0..16) |i| {
-                JPEG_LOG.info("{d}: ", .{i + 1});
+                try scratch.writer().print("{d}: ", .{i + 1});
+                var codes_per_len: u8 = 0;
                 for (self.offsets[i]..self.offsets[i + 1]) |j| {
-                    JPEG_LOG.info("{d} ", .{self.symbols[j]});
+                    try scratch.writer().print("{X} ", .{self.symbols[j]});
+                    codes_per_len += 1;
                 }
-                JPEG_LOG.info("\n", .{});
+                total_codes += codes_per_len;
+                try scratch.writer().print("({d}) \n", .{codes_per_len});
             }
+            JPEG_LOG.info("\n{s}Total Codes {d}\n", .{ scratch.items, total_codes });
         }
     }
 };
@@ -128,14 +137,15 @@ const HuffmanTable = struct {
 const QuantizationTable = struct {
     table: [64]u16 = [_]u16{0} ** 64,
     set: bool = false,
-    pub fn print(self: *const QuantizationTable) void {
+    pub fn print(self: *const QuantizationTable) std.mem.Allocator.Error!void {
+        scratch.clearRetainingCapacity();
         for (0.., self.table) |i, item| {
-            JPEG_LOG.info("{x} ", .{item});
+            try scratch.writer().print("{d} ", .{item});
             if (i != 0 and i % 8 == 0) {
-                JPEG_LOG.info("\n", .{});
+                try scratch.writer().print("\n", .{});
             }
         }
-        JPEG_LOG.info("\n", .{});
+        JPEG_LOG.info("\n{s}\n", .{scratch.items});
     }
 };
 
@@ -149,6 +159,7 @@ const ImageFileDirectory = struct {
         tag_ptr: u32,
         value: ?TagValue,
         const TagType = enum(u16) {
+            None = 0,
             Byte = 1,
             ASCII = 2,
             Short = 3,
@@ -534,7 +545,9 @@ pub const JPEGBuilder = struct {
     }
     fn read_huffman(self: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("Reading DHT marker\n", .{});
+        JPEG_LOG.info("Offset: 0x{X}\n", .{bit_reader.byte_stream.index - 2});
         var length: i16 = try bit_reader.read(i16);
+        JPEG_LOG.info("Huffman table length = {d}\n", .{length});
         length -= 2;
         while (length > 0) {
             const table_info: u8 = try bit_reader.read(u8);
@@ -582,7 +595,7 @@ pub const JPEGBuilder = struct {
         if (header == JPEG_HEADERS.APP1) {
             var buf: [4]u8 = [_]u8{0} ** 4;
             const pre_index = bit_reader.byte_stream.index;
-            JPEG_LOG.info("pre index {d} segment length {d}\n", .{ pre_index, length - 2 });
+            JPEG_LOG.info("pre index {d} segment length {d}\n", .{ pre_index, length });
             var have_exif = false;
             for (0..length - 2) |_| {
                 buf[0] = buf[1];
@@ -652,6 +665,13 @@ pub const JPEGBuilder = struct {
                                     self.orientation = @enumFromInt(ifd.tags[i].value.?.short);
                                 }
                                 _ = try bit_reader.read(u16);
+                            },
+                            .Rational => {
+                                ifd.tags[i].tag_ptr = try bit_reader.read(u32);
+                                const old_indx = bit_reader.byte_stream.index;
+                                bit_reader.byte_stream.index = offset + ifd.tags[i].tag_ptr;
+                                ifd.tags[i].value = .{ .rational = .{ try bit_reader.read(u32), try bit_reader.read(u32) } };
+                                bit_reader.byte_stream.index = old_indx;
                             },
                             else => {},
                         }
@@ -741,8 +761,12 @@ pub const JPEGBuilder = struct {
     fn read_scans(self: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
         try self.read_start_of_scan(bit_reader);
         JPEG_LOG.info("next header {x} {x}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1] });
-        //self.print();
-        try self.decode_huffman_data(bit_reader);
+        try self.print();
+        JPEG_LOG.info("Starting huffman decoding at index 0x{X}\n", .{bit_reader.byte_stream.index});
+        self.decode_huffman_data(bit_reader) catch |err| {
+            JPEG_LOG.err("Error decoding huffman data {any}\n", .{err});
+            return;
+        };
         JPEG_LOG.info("next header {x} {x}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1] });
         var last: u8 = try bit_reader.read(u8);
         var current: u8 = try bit_reader.read(u8);
@@ -778,20 +802,20 @@ pub const JPEGBuilder = struct {
         JPEG_LOG.info("next header {x} {x}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1] });
         try self.read_scans(bit_reader);
     }
-    pub fn print(self: *JPEGBuilder) void {
+    pub fn print(self: *JPEGBuilder) std.mem.Allocator.Error!void {
         JPEG_LOG.info("Quant Tables:\n", .{});
         for (self.quantization_tables) |table| {
-            table.print();
+            try table.print();
         }
         JPEG_LOG.info("DC Tables:\n", .{});
         for (0.., self.huffman_dct_tables) |i, table| {
             JPEG_LOG.info("Table ID: {d}\n", .{i});
-            table.print();
+            try table.print();
         }
         JPEG_LOG.info("AC Tables:\n", .{});
         for (0.., self.huffman_act_tables) |i, table| {
             JPEG_LOG.info("Table ID: {d}\n", .{i});
-            table.print();
+            try table.print();
         }
     }
     fn generate_huffman_codes(_: *JPEGBuilder, h_table: *HuffmanTable) void {
@@ -842,9 +866,9 @@ pub const JPEGBuilder = struct {
         }
     }
     fn get_next_symbol(_: *JPEGBuilder, bit_reader: *common.BitReader, h_table: *HuffmanTable) Error!u8 {
-        var current_code: i32 = 0;
+        var current_code: u32 = 0;
         for (0..h_table.offsets.len - 1) |i| {
-            const bit: i32 = @as(i32, @bitCast(try bit_reader.read_bit()));
+            const bit: u32 = @as(u32, try bit_reader.read_bit());
             current_code = (current_code << 1) | bit;
             for (h_table.offsets[i]..h_table.offsets[i + 1]) |j| {
                 if (current_code == h_table.codes[j]) {
@@ -852,12 +876,16 @@ pub const JPEGBuilder = struct {
                 }
             }
         }
+        JPEG_LOG.err("Failed to retrieve next symbol {d}\n", .{current_code});
         return Error.HuffmanDecoding;
     }
     fn decode_block_component(self: *JPEGBuilder, bit_reader: *common.BitReader, color_channel: []i32, previous_dc: *i32, skips: *u32, dct_table: *HuffmanTable, act_table: *HuffmanTable) Error!void {
         if (self.frame_type == JPEG_HEADERS.SOF0) {
+            //JPEG_LOG.err("Starting decode S0F0\n", .{});
             const length: u8 = try get_next_symbol(self, bit_reader, dct_table);
+            //JPEG_LOG.err("S0F0 length {d}\n", .{length});
             if (length > 11) {
+                JPEG_LOG.err("Length > 11 {d}\n", .{length});
                 return Error.HuffmanDecoding;
             }
             var coeff: i32 = @as(i32, @bitCast(try bit_reader.read_bits(length)));
@@ -870,6 +898,7 @@ pub const JPEGBuilder = struct {
             var i: u32 = 1;
             while (i < color_channel.len) {
                 const symbol: u8 = try self.get_next_symbol(bit_reader, act_table);
+                //JPEG_LOG.err("AC next symbol {d}\n", .{symbol});
                 if (symbol == 0x00) {
                     for (i..color_channel.len) |_| {
                         color_channel[zig_zag_map[i]] = 0;
@@ -885,6 +914,7 @@ pub const JPEGBuilder = struct {
                 }
                 //JPEG_LOG.info("{d} {d} {d}\n", .{ num_zeroes, i + num_zeroes, color_channel.len });
                 if (i + num_zeroes >= color_channel.len) {
+                    JPEG_LOG.err("i + num_zeroes >= color_channel.len {d} {d} {d} \n", .{ i, num_zeroes, color_channel.len });
                     return Error.HuffmanDecoding;
                 }
 
@@ -894,6 +924,7 @@ pub const JPEGBuilder = struct {
                 }
 
                 if (coeff_length > 10) {
+                    JPEG_LOG.err("coeff_length > 10 {d} \n", .{coeff_length});
                     return Error.HuffmanDecoding;
                 }
 
@@ -908,11 +939,12 @@ pub const JPEGBuilder = struct {
             }
         } else {
             // S0F2
+            //JPEG_LOG.err("Starting decode S0F2\n", .{});
             if (self.start_of_selection == 0 and self.succcessive_approximation_high == 0) {
-
                 // dc first
                 const length: u8 = try get_next_symbol(self, bit_reader, dct_table);
                 if (length > 11) {
+                    JPEG_LOG.err("Length > 11 {d}\n", .{length});
                     return Error.HuffmanDecoding;
                 }
                 var coeff: i32 = @as(i32, @bitCast(try bit_reader.read_bits(length)));
@@ -940,6 +972,7 @@ pub const JPEGBuilder = struct {
                     if (coeff_length != 0) {
                         //JPEG_LOG.info("{d} {d} {d}\n", .{ num_zeroes, i + num_zeroes, color_channel.len });
                         if (i + num_zeroes > self.end_of_selection) {
+                            JPEG_LOG.err("i + num_zeroes > self.end_of_selection {d} {d} {d} \n", .{ i, num_zeroes, self.end_of_selection });
                             return Error.HuffmanDecoding;
                         }
 
@@ -949,6 +982,7 @@ pub const JPEGBuilder = struct {
                         }
 
                         if (coeff_length > 10) {
+                            JPEG_LOG.err("coeff_length > 10 {d} \n", .{coeff_length});
                             return Error.HuffmanDecoding;
                         }
                         var coeff = @as(i32, @bitCast(try bit_reader.read_bits(coeff_length)));
@@ -960,6 +994,7 @@ pub const JPEGBuilder = struct {
                         //JPEG_LOG.info("num zeroes = {d}\n", .{num_zeroes});
                         if (num_zeroes == 15) {
                             if (i + num_zeroes > self.end_of_selection) {
+                                JPEG_LOG.err("i + num_zeroes > self.end_of_selection {d} {d} {d} \n", .{ i, num_zeroes, self.end_of_selection });
                                 return Error.HuffmanDecoding;
                             }
                             for (0..num_zeroes) |_| {
@@ -1355,6 +1390,8 @@ pub const JPEGBuilder = struct {
     }
 
     pub fn load(self: *JPEGBuilder, file_name: []const u8, allocator: std.mem.Allocator) Error!Image {
+        scratch = std.ArrayList(u8).init(allocator);
+        defer scratch.deinit();
         var bit_reader: common.BitReader = try common.BitReader.init(.{ .file_name = file_name, .allocator = allocator, .jpeg_filter = true });
         defer bit_reader.deinit();
         self.allocator = allocator;
