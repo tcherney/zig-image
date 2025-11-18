@@ -792,7 +792,8 @@ pub const JPEGBuilder = struct {
         var current: u8 = try bit_reader.read(u8);
         while (true) {
             if (last != @intFromEnum(JPEG_HEADERS.HEADER)) {
-                return Error.InvalidHeader;
+                JPEG_LOG.err("Invalid header {x} {x}\n", .{ last, current });
+                break;
             }
             if (current == @intFromEnum(JPEG_HEADERS.EOI)) {
                 break;
@@ -859,28 +860,30 @@ pub const JPEGBuilder = struct {
         const luminance_only: bool = self.components_in_scan == 1 and self.color_components[0].used_in_scan;
         const y_step: u32 = if (luminance_only) 1 else self.vertical_sampling_factor;
         const x_step: u32 = if (luminance_only) 1 else self.horizontal_sampling_factor;
-        const restart_interval: u32 = self.restart_interval * x_step * y_step;
-
+        //const restart_interval: u32 = self.restart_interval * x_step * y_step;
+        var curr_interval: u32 = 1;
         while (y < self.block_height) : (y += y_step) {
             while (x < self.block_width) : (x += x_step) {
-                if (restart_interval != 0 and (y * self.block_width_real + x) % restart_interval == 0) {
-                    JPEG_LOG.info("Resetting, next bytes 0x{X}, 0x{X} block {d} {d}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1], y, x });
+                //JPEG_LOG.info("Restart Inverval {d}, curr interval {d}\n", .{ self.restart_interval, (curr_interval) });
+                if (self.restart_interval != 0 and (curr_interval) % self.restart_interval == 0) {
+                    //JPEG_LOG.info("Resetting, next bytes 0x{X}, 0x{X} block {d} {d}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1], y, x });
                     previous_dcs[0] = 0;
                     previous_dcs[1] = 0;
                     previous_dcs[2] = 0;
                     skips = 0;
                     bit_reader.align_reader();
                     //TODO this may be the attack angle
-                    if (!(x == 0 and y == 0)) {
-                        var last = try bit_reader.read(u8);
-                        var current = try bit_reader.read(u8);
-                        while (last != @intFromEnum(JPEG_HEADERS.HEADER) or !(current >= 0xD0 and current <= 0xD7)) {
-                            last = current;
-                            current = try bit_reader.read(u8);
-                            JPEG_LOG.info("Finding reset, next bytes 0x{X}, 0x{X}\n", .{ last, current });
-                        }
+                    //if (!(x == 0 and y == 0)) {
+                    var last = try bit_reader.read(u8);
+                    var current = try bit_reader.read(u8);
+                    while (last != @intFromEnum(JPEG_HEADERS.HEADER) or !(current >= 0xD0 and current <= 0xD7)) {
+                        last = current;
+                        current = try bit_reader.read(u8);
+                        JPEG_LOG.info("Finding reset, next bytes 0x{X}, 0x{X}\n", .{ last, current });
                     }
+                    //}
                 }
+                curr_interval += 1;
                 for (0..self.num_components) |j| {
                     if (self.color_components[j].used_in_scan) {
                         const v_max: u32 = if (luminance_only) 1 else self.color_components[j].vertical_sampling_factor;
