@@ -107,7 +107,7 @@ const zig_zag_map: [64]u8 = [_]u8{
 };
 
 var scratch: std.ArrayList(u8) = undefined;
-
+var code_scratch: [16]u8 = undefined;
 const HuffmanTable = struct {
     symbols: [176]u8 = [_]u8{0} ** 176,
     offsets: [17]u8 = [_]u8{0} ** 17,
@@ -118,7 +118,6 @@ const HuffmanTable = struct {
             scratch.clearRetainingCapacity();
             try scratch.writer().print("Symbols: \n", .{});
             var total_codes: u8 = 0;
-
             for (0..16) |i| {
                 try scratch.writer().print("{d}: ", .{i + 1});
                 var codes_per_len: u8 = 0;
@@ -130,6 +129,26 @@ const HuffmanTable = struct {
                 try scratch.writer().print("({d}) \n", .{codes_per_len});
             }
             JPEG_LOG.info("\n{s}Total Codes {d}\n", .{ scratch.items, total_codes });
+            scratch.clearRetainingCapacity();
+            for (0..16) |i| {
+                try scratch.writer().print(" Codes of length {d} bits:\n", .{i + 1});
+                for (self.offsets[i]..self.offsets[i + 1]) |j| {
+                    output_code(self.codes[j], i + 1);
+                    try scratch.writer().print("  {s} = {X}\n", .{ code_scratch[0..(i + 1)], self.symbols[j] });
+                }
+            }
+            JPEG_LOG.info("Expanded Form of Codes {s}", .{scratch.items});
+        }
+    }
+    fn output_code(code: u32, length: usize) void {
+        var code_cpy = code;
+        for (0..length) |i| {
+            if (code_cpy & 0x1 == 1) {
+                code_scratch[length - 1 - i] = '1';
+            } else {
+                code_scratch[length - 1 - i] = '0';
+            }
+            code_cpy >>= 1;
         }
     }
 };
@@ -506,6 +525,7 @@ pub const JPEGBuilder = struct {
             if (color_component.huffman_act_table_id == 3 or color_component.huffman_dct_table_id == 3) {
                 return Error.InvalidHuffmanID;
             }
+            JPEG_LOG.info("Component ID: {d}, DC Table ID: {d}, AC Table ID: {d}", .{ component_id, color_component.huffman_dct_table_id, color_component.huffman_act_table_id });
         }
         self.start_of_selection = try bit_reader.read(u8);
         self.end_of_selection = try bit_reader.read(u8);
@@ -764,7 +784,7 @@ pub const JPEGBuilder = struct {
         try self.print();
         JPEG_LOG.info("Starting huffman decoding at index 0x{X}\n", .{bit_reader.byte_stream.index});
         self.decode_huffman_data(bit_reader) catch |err| {
-            JPEG_LOG.err("Error decoding huffman data {any}\n", .{err});
+            JPEG_LOG.err("Error decoding huffman data ended at index 0x{X} {any}\n", .{ bit_reader.byte_stream.index, err });
             return;
         };
         JPEG_LOG.info("next header {x} {x}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1] });
@@ -803,6 +823,7 @@ pub const JPEGBuilder = struct {
         try self.read_scans(bit_reader);
     }
     pub fn print(self: *JPEGBuilder) std.mem.Allocator.Error!void {
+        JPEG_LOG.info("Zero Based: {any}\n", .{self.zero_based});
         JPEG_LOG.info("Quant Tables:\n", .{});
         for (self.quantization_tables) |table| {
             try table.print();
@@ -830,7 +851,6 @@ pub const JPEGBuilder = struct {
     }
     fn decode_huffman_data(self: *JPEGBuilder, bit_reader: *common.BitReader) Error!void {
         JPEG_LOG.info("{d} {d} real {d} {d}\n", .{ self.block_width, self.block_height, self.block_width_real, self.block_height_real });
-
         var previous_dcs: [3]i32 = [_]i32{0} ** 3;
         var skips: u32 = 0;
         var y: usize = 0;
@@ -844,19 +864,37 @@ pub const JPEGBuilder = struct {
         while (y < self.block_height) : (y += y_step) {
             while (x < self.block_width) : (x += x_step) {
                 if (restart_interval != 0 and (y * self.block_width_real + x) % restart_interval == 0) {
+                    JPEG_LOG.info("Resetting, next bytes 0x{X}, 0x{X} block {d} {d}\n", .{ bit_reader.byte_stream.buffer[bit_reader.byte_stream.index], bit_reader.byte_stream.buffer[bit_reader.byte_stream.index + 1], y, x });
                     previous_dcs[0] = 0;
                     previous_dcs[1] = 0;
                     previous_dcs[2] = 0;
                     skips = 0;
                     bit_reader.align_reader();
+                    //TODO this may be the attack angle
+                    if (!(x == 0 and y == 0)) {
+                        var last = try bit_reader.read(u8);
+                        var current = try bit_reader.read(u8);
+                        while (last != @intFromEnum(JPEG_HEADERS.HEADER) or !(current >= 0xD0 and current <= 0xD7)) {
+                            last = current;
+                            current = try bit_reader.read(u8);
+                            JPEG_LOG.info("Finding reset, next bytes 0x{X}, 0x{X}\n", .{ last, current });
+                        }
+                    }
                 }
                 for (0..self.num_components) |j| {
                     if (self.color_components[j].used_in_scan) {
                         const v_max: u32 = if (luminance_only) 1 else self.color_components[j].vertical_sampling_factor;
                         const h_max: u32 = if (luminance_only) 1 else self.color_components[j].horizontal_sampling_factor;
+                        //JPEG_LOG.info("Component {d} dct table {d} act table {d}\n", .{ j, self.color_components[j].huffman_dct_table_id, self.color_components[j].huffman_act_table_id });
                         for (0..v_max) |v| {
                             for (0..h_max) |h| {
-                                try decode_block_component(self, bit_reader, self.blocks[(y + v) * self.block_width_real + (x + h)].get(j), &previous_dcs[j], &skips, &self.huffman_dct_tables[self.color_components[j].huffman_dct_table_id], &self.huffman_act_tables[self.color_components[j].huffman_act_table_id]);
+                                decode_block_component(self, bit_reader, self.blocks[(y + v) * self.block_width_real + (x + h)].get(j), &previous_dcs[j], &skips, &self.huffman_dct_tables[self.color_components[j].huffman_dct_table_id], &self.huffman_act_tables[self.color_components[j].huffman_act_table_id]) catch |err| {
+                                    if (err == Error.InvalidEOI) {
+                                        return;
+                                    } else {
+                                        return err;
+                                    }
+                                };
                             }
                         }
                     }
@@ -898,7 +936,7 @@ pub const JPEGBuilder = struct {
             var i: u32 = 1;
             while (i < color_channel.len) {
                 const symbol: u8 = try self.get_next_symbol(bit_reader, act_table);
-                //JPEG_LOG.err("AC next symbol {d}\n", .{symbol});
+                //JPEG_LOG.info("{d} AC next symbol {d}\n", .{ i, symbol });
                 if (symbol == 0x00) {
                     for (i..color_channel.len) |_| {
                         color_channel[zig_zag_map[i]] = 0;
