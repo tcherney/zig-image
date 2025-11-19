@@ -455,12 +455,12 @@ pub const PNGBuilder = struct {
             }
         }
     }
-    fn add_filtered_pixel(self: *PNGBuilder, ret: *std.ArrayList(u8), buffer_index: *usize, bit_index: *u3, data_index: usize, num_bytes_per_pixel: usize) Error!void {
+    fn add_filtered_pixel(self: *PNGBuilder, buffer: []u8, buffer_index: *usize, bit_index: *u3, data_index: usize, num_bytes_per_pixel: usize) Error!void {
         switch (self.color_type) {
             0 => {
                 switch (self.bit_depth) {
                     1 => {
-                        const rgb: u8 = if (((ret.items[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
+                        const rgb: u8 = if (((buffer[buffer_index.*] >> bit_index.*) & 1) == 1) 255 else 0;
                         self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 0) {
                             bit_index.* = 7;
@@ -470,7 +470,7 @@ pub const PNGBuilder = struct {
                         }
                     },
                     2 => {
-                        const bits: u2 = (@as(u2, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(ret.items[buffer_index.*] >> bit_index.* - 1)) & 1);
+                        const bits: u2 = (@as(u2, @truncate((buffer[buffer_index.*] >> bit_index.*) & 1)) << 1) | (@as(u2, @truncate(buffer[buffer_index.*] >> bit_index.* - 1)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 3.0)));
                         self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 1) {
@@ -481,7 +481,7 @@ pub const PNGBuilder = struct {
                         }
                     },
                     4 => {
-                        const bits: u4 = (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((ret.items[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(ret.items[buffer_index.*] >> bit_index.* - 3)) & 1);
+                        const bits: u4 = (@as(u4, @truncate((buffer[buffer_index.*] >> bit_index.*) & 1)) << 3) | (@as(u4, @truncate((buffer[buffer_index.*] >> bit_index.* - 1) & 1)) << 2) | (@as(u4, @truncate((buffer[buffer_index.*] >> bit_index.* - 2) & 1)) << 1) | (@as(u4, @truncate(buffer[buffer_index.*] >> bit_index.* - 3)) & 1);
                         const rgb: u8 = @as(u8, @intFromFloat(255.0 * (@as(f64, @floatFromInt(bits)) / 15.0)));
                         self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         if (bit_index.* == 3) {
@@ -492,12 +492,12 @@ pub const PNGBuilder = struct {
                         }
                     },
                     8 => {
-                        const rgb: u8 = ret.items[buffer_index.*];
+                        const rgb: u8 = buffer[buffer_index.*];
                         self.data.items[data_index] = common.Pixel.init(rgb, rgb, rgb, null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        const rgb: u16 = (@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1];
+                        const rgb: u16 = (@as(u16, @intCast(buffer[buffer_index.*])) << 8) | buffer[buffer_index.* + 1];
                         const gray = @as(u8, @intFromFloat(@as(f64, @floatFromInt(rgb)) * (255.0 / 65535.0)));
                         self.data.items[data_index] = common.Pixel.init(gray, gray, gray, null);
                         buffer_index.* += num_bytes_per_pixel;
@@ -509,11 +509,11 @@ pub const PNGBuilder = struct {
             2 => {
                 switch (self.bit_depth) {
                     8 => {
-                        self.data.items[data_index] = common.Pixel.init(ret.items[buffer_index.*], ret.items[buffer_index.* + 1], ret.items[buffer_index.* + 2], null);
+                        self.data.items[data_index] = common.Pixel.init(buffer[buffer_index.*], buffer[buffer_index.* + 1], buffer[buffer_index.* + 2], null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        self.data.items[data_index] = common.Pixel.init(@as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
+                        self.data.items[data_index] = common.Pixel.init(@as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.*])) << 8) | buffer[buffer_index.* + 1])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 2])) << 8) | buffer[buffer_index.* + 3])) * (255.0 / 65535.0))), @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 4])) << 8) | buffer[buffer_index.* + 5])) * (255.0 / 65535.0))), null);
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     else => unreachable,
@@ -532,20 +532,21 @@ pub const PNGBuilder = struct {
                 switch (self.bit_depth) {
                     8 => {
                         self.data.items[data_index] = common.Pixel.init(
-                            ret.items[buffer_index.*],
-                            ret.items[buffer_index.*],
-                            ret.items[buffer_index.*],
-                            ret.items[buffer_index.* + 1],
+                            buffer[buffer_index.*],
+                            buffer[buffer_index.*],
+                            buffer[buffer_index.*],
+                            buffer[buffer_index.* + 1],
                         );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        // next 3 bytes are rgb followed by alpha
-                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3]));
+                        const gray_val = @as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.*])) << 8) | buffer[buffer_index.* + 1]));
+                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 2])) << 8) | buffer[buffer_index.* + 3]));
+                        const gray_8bit = @as(u8, @intFromFloat(gray_val * (255.0 / 65535.0)));
                         self.data.items[data_index] = common.Pixel.init(
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            gray_8bit,
+                            gray_8bit,
+                            gray_8bit,
                             @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         );
                         buffer_index.* += num_bytes_per_pixel;
@@ -558,21 +559,20 @@ pub const PNGBuilder = struct {
                 switch (self.bit_depth) {
                     8 => {
                         self.data.items[data_index] = common.Pixel.init(
-                            ret.items[buffer_index.*],
-                            ret.items[buffer_index.* + 1],
-                            ret.items[buffer_index.* + 2],
-                            ret.items[buffer_index.* + 3],
+                            buffer[buffer_index.*],
+                            buffer[buffer_index.* + 1],
+                            buffer[buffer_index.* + 2],
+                            buffer[buffer_index.* + 3],
                         );
                         buffer_index.* += num_bytes_per_pixel;
                     },
                     16 => {
-                        //TODO figure out scuffed corner in 16 bit alpha images
-                        // next 3 bytes are rgb followed by alpha
-                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 6])) << 8) | ret.items[buffer_index.* + 7]));
+                        // 2 bytes for R, G, B, and Alpha each.
+                        const alpha = @as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 6])) << 8) | buffer[buffer_index.* + 7]));
                         self.data.items[data_index] = common.Pixel.init(
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.*])) << 8) | ret.items[buffer_index.* + 1])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 2])) << 8) | ret.items[buffer_index.* + 3])) * (255.0 / 65535.0))),
-                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(ret.items[buffer_index.* + 4])) << 8) | ret.items[buffer_index.* + 5])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.*])) << 8) | buffer[buffer_index.* + 1])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 2])) << 8) | buffer[buffer_index.* + 3])) * (255.0 / 65535.0))),
+                            @as(u8, @intFromFloat(@as(f64, @floatFromInt((@as(u16, @intCast(buffer[buffer_index.* + 4])) << 8) | buffer[buffer_index.* + 5])) * (255.0 / 65535.0))),
                             @as(u8, @intFromFloat(alpha * (255.0 / 65535.0))),
                         );
                         buffer_index.* += num_bytes_per_pixel;
@@ -602,45 +602,54 @@ pub const PNGBuilder = struct {
         buffer_index = 0;
         var data_index: usize = 0;
         if (self.interlace_method == 0) {
+            var previous_scanline: ?[]u8 = null;
+            const scanline_buffer = try self.allocator.alloc(u8, scanline_width);
+            defer self.allocator.free(scanline_buffer);
             for (0..self.height) |_| {
                 const filter_type: u8 = ret.items[buffer_index];
                 //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                 buffer_index += 1;
-                const previous_scanline: ?[]u8 = if (previous_index > 0) ret.items[previous_index .. scanline_width + previous_index] else null;
-                previous_index = buffer_index;
-                self.filter_scanline(filter_type, ret.items[buffer_index .. scanline_width + buffer_index], previous_scanline, num_bytes_per_pixel);
+                const current_scanline = ret.items[buffer_index .. scanline_width + buffer_index];
+                previous_index = 0;
+                self.filter_scanline(filter_type, current_scanline, previous_scanline, num_bytes_per_pixel);
                 var bit_index: u3 = 7;
                 for (0..self.width) |_| {
-                    try self.add_filtered_pixel(ret, &buffer_index, &bit_index, data_index, num_bytes_per_pixel);
+                    try self.add_filtered_pixel(current_scanline, &previous_index, &bit_index, data_index, num_bytes_per_pixel);
                     data_index += 1;
                 }
+                @memcpy(scanline_buffer, current_scanline);
+                previous_scanline = scanline_buffer;
+                buffer_index += scanline_width;
             }
         }
-        //TODO improve interlacing support
         // adam7
         else if (self.interlace_method == 1) {
             var pass: u3 = 0;
+            var scanline_buffer: ?[]u8 = null;
             while (pass < 7) : (pass += 1) {
                 var row: usize = StartingRow[pass];
-                previous_index = 0;
-                var current_scanline: []u8 = undefined;
+                if (StartingRow[pass] >= self.height or StartingCol[pass] >= self.width) {
+                    continue;
+                }
                 while (row < self.height) : (row += RowIncrement[pass]) {
                     var col: usize = StartingCol[pass];
                     var bit_index: u3 = 7;
                     const filter_type: u8 = ret.items[buffer_index];
                     //PNG_LOG.info("filter type {d} at position {d}\n", .{ filter_type, i });
                     buffer_index += 1;
-                    scanline_width = if (self.bit_depth >= 8) ((self.width - col) / ColIncrement[pass]) * num_bytes_per_pixel else @as(usize, @intFromFloat(@as(f64, @floatFromInt(((self.width - col) / ColIncrement[pass]))) * ((1.0 * @as(f64, @floatFromInt(self.bit_depth))) / 8.0)));
-                    const previous_scanline: ?[]u8 = if (previous_index > 0) current_scanline else null;
-                    previous_index = buffer_index;
-                    current_scanline = ret.items[buffer_index .. scanline_width + buffer_index];
-                    std.log.debug("filtering {d}-{d} depth {d} bytes_per_pixel {d}\n", .{ buffer_index, scanline_width + buffer_index, self.bit_depth, num_bytes_per_pixel });
-                    self.filter_scanline(filter_type, current_scanline, previous_scanline, num_bytes_per_pixel);
+                    const pass_width = (self.width - StartingCol[pass] + ColIncrement[pass] - 1) / ColIncrement[pass];
+                    scanline_width = if (self.bit_depth >= 8) pass_width * num_bytes_per_pixel else @as(usize, @intFromFloat(@ceil(@as(f64, @floatFromInt(pass_width)) * (@as(f64, @floatFromInt(self.bit_depth)) / 8.0))));
+                    if (scanline_width == 0) continue;
+                    const current_scanline = ret.items[buffer_index .. buffer_index + scanline_width];
+                    self.filter_scanline(filter_type, current_scanline, scanline_buffer, num_bytes_per_pixel);
+                    scanline_buffer = current_scanline;
+                    var scanline_pixel_index: usize = 0;
                     while (col < self.width) : (col += ColIncrement[pass]) {
-                        try self.add_filtered_pixel(ret, &buffer_index, &bit_index, ((row * self.width) + col), num_bytes_per_pixel);
+                        try self.add_filtered_pixel(current_scanline, &scanline_pixel_index, &bit_index, ((row * self.width) + col), num_bytes_per_pixel);
                     }
-                    std.log.debug("row = {d}, col = {d}, rowxcol = {d}, len = {d}\n", .{ row, col, row * col, ret.items.len });
+                    buffer_index += scanline_width;
                 }
+                scanline_buffer = null;
             }
         }
         PNG_LOG.info("index {d}\n", .{buffer_index});
