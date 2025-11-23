@@ -2,6 +2,7 @@
 const std = @import("std");
 const common = @import("common");
 pub const image_core = @import("image_core.zig");
+pub const svg_image = @import("svg_image.zig");
 pub const jpeg_image = @import("jpeg_image.zig");
 pub const png_image = @import("png_image.zig");
 pub const bmp_image = @import("bmp_image.zig");
@@ -15,6 +16,7 @@ pub const Mat = common.Mat;
 pub const JPEGBuilder: type = jpeg_image.JPEGBuilder;
 pub const PNGBuilder: type = png_image.PNGBuilder;
 pub const BMPBuilder: type = bmp_image.BMPBuilder;
+pub const SVGBuilder: type = svg_image.SVGBuilder;
 
 pub const Image = struct {
     allocator: std.mem.Allocator = undefined,
@@ -30,13 +32,15 @@ pub const Image = struct {
         JPEG,
         PNG,
         BMP,
+        SVG,
     };
     pub const ScaleOption = enum { BICUBIC, BILINEAR, NN };
     pub const ImageBuilder = union(enum) {
         jpeg: JPEGBuilder,
         png: PNGBuilder,
         bmp: BMPBuilder,
-        pub const Error = JPEGBuilder.Error || PNGBuilder.Error || BMPBuilder.Error;
+        svg: SVGBuilder,
+        pub const Error = JPEGBuilder.Error || PNGBuilder.Error || BMPBuilder.Error || SVGBuilder.Error;
         pub fn load(self: *ImageBuilder, path: []const u8, allocator: Allocator) ImageBuilder.Error!Image {
             switch (self.*) {
                 inline else => |*i| return try i.load(path, allocator),
@@ -65,6 +69,11 @@ pub const Image = struct {
             },
             .BMP => {
                 builder = .{ .bmp = BMPBuilder{} };
+                defer builder.deinit();
+                ret = try builder.load(path, allocator);
+            },
+            .SVG => {
+                builder = .{ .svg = SVGBuilder{} };
                 defer builder.deinit();
                 ret = try builder.load(path, allocator);
             },
@@ -256,6 +265,19 @@ test "BMP" {
     try image.convert_grayscale();
     image.get(5, 5).set_r(255);
     try image.write_BMP("test_output/parrot2.bmp");
+    image.deinit();
+    if (gpa.deinit() == .leak) {
+        std.log.warn("Leaked!\n", .{});
+    }
+}
+
+test "SVG" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var image = try Image.init_load(allocator, "tests/svg/cat.svg", .SVG);
+    try image.convert_grayscale();
+    image.get(5, 5).set_r(255);
+    try image.write_BMP("test_output/cat.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.log.warn("Leaked!\n", .{});
