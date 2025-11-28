@@ -274,10 +274,10 @@ test "BMP" {
 test "SVG" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var image = try Image.init_load(allocator, "tests/svg/cat.svg", .SVG);
+    var image = try Image.init_load(allocator, "tests/svg/test.svg", .SVG);
     try image.convert_grayscale();
     image.get(5, 5).set_r(255);
-    try image.write_BMP("test_output/cat.bmp");
+    try image.write_BMP("test_output/test_svg.bmp");
     image.deinit();
     if (gpa.deinit() == .leak) {
         std.log.warn("Leaked!\n", .{});
