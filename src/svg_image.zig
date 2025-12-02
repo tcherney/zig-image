@@ -7,6 +7,13 @@ pub const Image = _image.Image;
 const SVG_LOG = std.log.scoped(.svg_image);
 
 const IMPLEMENTED = false;
+//https://www.w3.org/Graphics/SVG/About.html
+//https://www.w3.org/TR/SVG11/intro.html
+//https://www.w3.org/TR/SVGTiny12/intro.html#howtoreference
+//https://www.w3.org/TR/SVGTiny12/intro.html#howtoreference
+//https://www.w3.org/TR/SVGTiny12/intro.html#howtoreference
+//https://www.geeksforgeeks.org/compiler-design/why-first-and-follow-in-compiler-design/
+//https://www.geeksforgeeks.org/compiler-design/construction-of-ll1-parsing-table/
 
 pub const SVGBuilder = struct {
     file_data: common.BitReader = undefined,
@@ -22,8 +29,13 @@ pub const SVGBuilder = struct {
         first: TerminalList,
         follow: TerminalList,
         pub const Grammar = [_][]u8{
-            "S -> <B>",
-            "B -> ε",
+            "S -> Element",
+            "Element -> OTagContentCTag",
+            "OTag -> <Properties>",
+            "CTag -> </Properties>",
+            "Properties -> ε",
+            "Content -> εElement",
+            "Content -> ε",
         };
         pub const TerminalList = std.ArrayList(u8);
     };
