@@ -63,14 +63,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const svg_image_module = b.addModule("svg_image", .{
+        .root_source_file = b.path("src/svg_image.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     bmp_image_module.addImport("common", commonlib.module("common"));
     jpeg_image_module.addImport("common", commonlib.module("common"));
     png_image_module.addImport("common", commonlib.module("common"));
+    svg_image_module.addImport("common", commonlib.module("common"));
     image_module.addImport("common", commonlib.module("common"));
     exe.root_module.addImport("image", image_module);
     exe.root_module.addImport("bmp_image", bmp_image_module);
     exe.root_module.addImport("jpeg_image", jpeg_image_module);
     exe.root_module.addImport("png_image", png_image_module);
+    exe.root_module.addImport("svg_image", svg_image_module);
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -135,6 +143,15 @@ pub fn build(b: *std.Build) void {
 
     const run_image_lib_unit_tests = b.addRunArtifact(image_lib_unit_tests);
 
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const svg_lib_unit_tests = b.addTest(.{
+        .name = "svg_image",
+        .root_module = svg_image_module,
+    });
+
+    const run_svg_lib_unit_tests = b.addRunArtifact(svg_lib_unit_tests);
+
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -150,6 +167,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_bmp_lib_unit_tests.step);
     test_step.dependOn(&run_png_lib_unit_tests.step);
     test_step.dependOn(&run_jpeg_lib_unit_tests.step);
+    test_step.dependOn(&run_svg_lib_unit_tests.step);
     test_step.dependOn(&run_image_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    const svg_test = b.step("svg", "Run unit tests");
+    svg_test.dependOn(&run_svg_lib_unit_tests.step);
 }
