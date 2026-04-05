@@ -25,6 +25,7 @@ pub const Image = struct {
     width: u32 = undefined,
     height: u32 = undefined,
     grayscale: bool = false,
+    meta: ?ImageBuilder = null,
     pub const ConvolMat = image_core.ConvolMat;
     pub const Error = image_core.Error || ImageBuilder.Error;
     pub const CoreError = image_core.Error || error{NotLoaded};
@@ -60,7 +61,9 @@ pub const Image = struct {
             .JPEG => {
                 builder = .{ .jpeg = JPEGBuilder{} };
                 defer builder.deinit();
+                std.debug.print("Builder allocated\n", .{});
                 ret = try builder.load(path, allocator);
+                std.debug.print("Loaded JPEG image: {}x{}\n", .{ ret.width, ret.height });
             },
             .PNG => {
                 builder = .{ .png = PNGBuilder{} };
@@ -74,8 +77,8 @@ pub const Image = struct {
             },
             .SVG => {
                 builder = .{ .svg = SVGBuilder{} };
-                defer builder.deinit();
                 ret = try builder.load(path, allocator);
+                ret.meta = builder;
             },
         }
         return ret;
@@ -83,6 +86,9 @@ pub const Image = struct {
 
     pub fn deinit(self: *Image) void {
         self.data.deinit();
+        if (self.meta != null) {
+            self.meta.?.deinit();
+        }
     }
 
     pub fn convert_grayscale(self: *Image) Error!void {

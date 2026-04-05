@@ -51,7 +51,7 @@ pub const SVGBuilder = struct {
         closing_tag: bool,
         value: []u8,
         pub const Properties = common.StringKeyMap([]const u8);
-        pub fn print(self: *const Tag) void {
+        pub fn print_tree(self: *const Tag) void {
             std.debug.print("<{s}", .{self.name});
             var iter = self.properties.iterator();
             while (iter.next()) |e| {
@@ -63,12 +63,28 @@ pub const SVGBuilder = struct {
                     std.debug.print("{s}", .{self.value});
                 } else {
                     for (0..self.children.items.len) |i| {
-                        self.children.items[i].print();
+                        self.children.items[i].print_tree();
                     }
                 }
                 std.debug.print("</{s}>", .{self.name});
             } else {
                 std.debug.print("/>\n", .{});
+            }
+        }
+        pub fn print(self: *const Tag) void {
+            std.debug.print("Tag {s}\nProperties\n", .{self.name});
+            var iter = self.properties.iterator();
+            while (iter.next()) |e| {
+                std.debug.print("   {s} = {s}\n", .{ e.key_ptr.*, e.value_ptr.* });
+            }
+            if (self.closing_tag) {
+                if (self.value.len > 0) {
+                    std.debug.print("Value\n   {s}\n", .{self.value});
+                } else {
+                    for (0..self.children.items.len) |i| {
+                        self.children.items[i].print();
+                    }
+                }
             }
         }
         pub fn deinit(self: *Tag) void {
@@ -85,7 +101,6 @@ pub const SVGBuilder = struct {
         self.allocator = allocator;
         self.file_data = try common.ByteStream.init(.{ .file_name = file_name, .allocator = self.allocator });
         SVG_LOG.info("reading svg\n", .{});
-        //TODO PARSE SVG
         try self.parse();
         self.data = try std.ArrayList(common.Pixel).initCapacity(self.allocator, self.height * self.width);
         self.data.expandToCapacity();
@@ -116,31 +131,80 @@ pub const SVGBuilder = struct {
         return self.file_data.getPos() != self.file_data.getEndPos();
     }
 
-    fn handle_inner(_: *SVGBuilder, curr_tag: *Tag, start: usize, end: usize) Error!void {
-        _ = curr_tag;
-        _ = start;
-        _ = end;
-        //TODO check char at end+1 for /, if / done else handle child
+    fn consume_whitespace(self: *SVGBuilder) Error!bool {
+        var white_space = try self.file_data.peek();
+        while ((white_space == ' ' or white_space == '\n' or white_space == '\r') and self.file_data.getPos() != self.file_data.getEndPos()) {
+            _ = try self.file_data.readByte();
+            white_space = try self.file_data.peek();
+        }
+        return self.file_data.getPos() != self.file_data.getEndPos();
     }
 
-    fn handle_tag(self: *SVGBuilder, curr_tag: *Tag, start: usize, end: usize) Error!void {
-        std.debug.print("Tag to parse {s}\n", .{self.file_data.buffer[start..end]});
-        self.file_data.index = start + 1;
+    fn consume(self: *SVGBuilder) Error!bool {
+        var white_space = try self.file_data.peek();
+        while ((white_space != ' ' and white_space != '\n' and white_space != '\r') and self.file_data.getPos() != self.file_data.getEndPos()) {
+            _ = try self.file_data.readByte();
+            white_space = try self.file_data.peek();
+        }
+        return self.file_data.getPos() != self.file_data.getEndPos();
+    }
+
+    fn handle_inner(self: *SVGBuilder, curr_tag: *Tag) Error!void {
+        if (!try self.consume_whitespace()) return Error.InvalidFormat;
+        if (try self.file_data.peek() != '<') {
+            const value_start = self.file_data.index;
+            while (try self.file_data.peek() != '<') _ = try self.file_data.readByte();
+            curr_tag.value = self.file_data.buffer[value_start..self.file_data.index];
+        } else {
+            while (try self.file_data.peek() == '<') {
+                if (self.file_data.buffer[self.file_data.index + 1] == '/') {
+                    break;
+                }
+                const child = try self.allocator.create(Tag);
+                child.* = Tag{
+                    .name = "",
+                    .properties = Tag.Properties.init(self.allocator),
+                    .parent = curr_tag,
+                    .children = std.ArrayList(*Tag).init(self.allocator),
+                    .closed = false,
+                    .value = "",
+                    .closing_tag = true,
+                };
+                try curr_tag.children.append(child);
+                try self.handle_tag(child);
+                if (!try self.find_opening()) return Error.InvalidFormat;
+            }
+        }
+    }
+
+    fn handle_closing_tag(self: *SVGBuilder, curr_tag: *Tag) Error!void {
+        if (!try self.find_opening()) return Error.InvalidFormat;
+        _ = try self.file_data.readByte();
+        if (try self.file_data.peek() == '/') {
+            curr_tag.closed = true;
+        }
+        if (!try self.find_ending()) return Error.InvalidFormat;
+        _ = try self.file_data.readByte();
+    }
+
+    fn handle_opening_tag(self: *SVGBuilder, curr_tag: *Tag) Error!void {
+        if (!try self.find_opening()) return Error.InvalidFormat;
+        _ = try self.file_data.readByte();
         //metadata tag
         if (try self.file_data.peek() == '?') {
             _ = try self.file_data.readByte();
-        } else if (try self.file_data.peek() == '/') {
-            curr_tag.closed = true;
-            return;
         }
+        if (!try self.consume_whitespace()) return Error.InvalidFormat;
         const name_start = self.file_data.index;
-        while (try self.file_data.peek() != ' ') _ = try self.file_data.readByte();
+        if (!try self.consume()) return Error.InvalidFormat;
         const name_end = self.file_data.index;
         curr_tag.name = self.file_data.buffer[name_start..name_end];
-        std.debug.print("Tag name {s}\n", .{curr_tag.name});
-        while (try self.file_data.peek() == ' ') _ = try self.file_data.readByte();
-        while (self.file_data.index < end and try self.file_data.peek() != '?' and self.file_data.getPos() != self.file_data.getEndPos()) {
-            while (try self.file_data.peek() == ' ') _ = try self.file_data.readByte();
+        std.debug.print("Tag name {s} parent {s}\n", .{ curr_tag.name, if (curr_tag.parent != null) curr_tag.parent.?.name else "None" });
+        if (!try self.consume_whitespace()) return Error.InvalidFormat;
+        //std.debug.print("Curr byte {c}\n", .{try self.file_data.peek()});
+        while (try self.file_data.peek() != '>' and try self.file_data.peek() != '?' and self.file_data.getPos() != self.file_data.getEndPos()) {
+            if (!try self.consume_whitespace()) return Error.InvalidFormat;
+            if (try self.file_data.peek() == '>' or try self.file_data.peek() == '/') break;
             var property_start: usize = self.file_data.index;
             //std.debug.print("Current byte {c} Looking for equal\n", .{self.file_data.buffer[property_start]});
             while (try self.file_data.peek() != '=') _ = try self.file_data.readByte();
@@ -157,10 +221,26 @@ pub const SVGBuilder = struct {
             const property_value = self.file_data.buffer[property_start..quote];
             std.debug.print("Property value {s}\n", .{property_value});
             try curr_tag.properties.put(property_name, property_value);
-            _ = try self.file_data.readByte();
+            //std.debug.print("Curr byte {c}\n", .{try self.file_data.peek()});
+            if (!try self.consume_whitespace()) return Error.InvalidFormat;
+            //std.debug.print("Curr byte {c}\n", .{try self.file_data.peek()});
         }
-        if (self.file_data.buffer[end - 1] == '/') curr_tag.closing_tag = false;
-        self.file_data.index = end;
+        //std.debug.print("Curr byte {c} Checking /\n", .{try self.file_data.peek()});
+        if (try self.file_data.peek() == '/') {
+            curr_tag.closing_tag = false;
+            _ = try self.file_data.readByte();
+        } else if (self.file_data.buffer[self.file_data.index - 1] == '/') {
+            curr_tag.closing_tag = false;
+        }
+        _ = try self.file_data.readByte();
+    }
+
+    fn handle_tag(self: *SVGBuilder, curr_tag: *Tag) Error!void {
+        try self.handle_opening_tag(curr_tag);
+        if (curr_tag.closing_tag) {
+            try self.handle_inner(curr_tag);
+            try self.handle_closing_tag(curr_tag);
+        }
     }
 
     fn parse(self: *SVGBuilder) Error!void {
@@ -174,11 +254,7 @@ pub const SVGBuilder = struct {
             .value = "",
             .closing_tag = false,
         };
-        if (!try self.find_opening()) return Error.InvalidFormat;
-        var start = self.file_data.index + 1;
-        if (!try self.find_ending()) return Error.InvalidFormat;
-        var end = self.file_data.index;
-        try self.handle_tag(self.version, start, end);
+        try self.handle_opening_tag(self.version);
 
         self.tree = try self.allocator.create(Tag);
         self.tree.* = Tag{
@@ -190,35 +266,29 @@ pub const SVGBuilder = struct {
             .value = "",
             .closing_tag = true,
         };
-        if (!try self.find_opening()) return Error.InvalidFormat;
-        start = self.file_data.index + 1;
-        if (!try self.find_ending()) return Error.InvalidFormat;
-        end = self.file_data.index;
-        try self.handle_tag(self.tree, start, end);
+        try self.handle_tag(self.tree);
         self.print();
-
-        start = end + 1;
-        if (!try self.find_opening()) return Error.InvalidFormat;
-        end = self.file_data.index;
-        try self.handle_inner(self.tree, start, end);
-        //self.print();
-
-        start = end + 1;
-        if (!try self.find_ending()) return Error.InvalidFormat;
-        end = self.file_data.index;
-        try self.handle_tag(self.tree, start, end);
-        //self.print();
     }
 
-    fn print(self: *SVGBuilder) void {
-        std.debug.print("----------\n<?{s}", .{self.version.name});
+    fn print_tree(self: *SVGBuilder) void {
+        std.debug.print("--------------------\n<?{s}", .{self.version.name});
         var iter = self.version.properties.iterator();
         while (iter.next()) |e| {
             std.debug.print(" {s}={s}", .{ e.key_ptr.*, e.value_ptr.* });
         }
         std.debug.print("?>\n", .{});
+        self.tree.print_tree();
+        std.debug.print("--------------------\n", .{});
+    }
+
+    fn print(self: *SVGBuilder) void {
+        std.debug.print("--------------------\n{s}\nProperties\n", .{self.version.name});
+        var iter = self.version.properties.iterator();
+        while (iter.next()) |e| {
+            std.debug.print("   {s} = {s}\n", .{ e.key_ptr.*, e.value_ptr.* });
+        }
         self.tree.print();
-        std.debug.print("----------\n", .{});
+        std.debug.print("--------------------\n", .{});
     }
 
     fn read_color_data(self: *SVGBuilder) Error!void {
