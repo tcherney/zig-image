@@ -1,4 +1,5 @@
 //wrapper struct to provide generic image struct
+//TODO add logging to all functions and builders
 const std = @import("std");
 const common = @import("common");
 pub const image_core = @import("image_core.zig");
