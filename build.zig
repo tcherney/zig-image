@@ -173,4 +173,12 @@ pub fn build(b: *std.Build) void {
 
     const svg_test = b.step("svg", "Run unit tests");
     svg_test.dependOn(&run_svg_lib_unit_tests.step);
+    //TODO make sure this works
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = image_lib.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    const docs_step = b.step("docs", "Generate documentation");
+    docs_step.dependOn(&install_docs.step);
 }
