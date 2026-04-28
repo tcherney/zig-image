@@ -1,5 +1,7 @@
-//wrapper struct to provide generic image struct
-//TODO add doc to all functions and builders
+//!Image processing library in zig, supports JPEG, PNG, BMP and SVG formats.
+//! Provides various image processing functions such as grayscale conversion, edge detection, rotation, scaling and convolution.
+//! Uses a wrapper struct to provide a generic image struct that can be used for all supported formats.
+//! The library is designed to be efficient and easy to use, with a focus on performance and memory management.
 const std = @import("std");
 const common = @import("common");
 pub const image_core = @import("image_core.zig");
@@ -19,6 +21,7 @@ pub const PNGBuilder: type = png_image.PNGBuilder;
 pub const BMPBuilder: type = bmp_image.BMPBuilder;
 pub const SVGBuilder: type = svg_image.SVGBuilder;
 
+/// The main struct representing an image, containing the pixel data, dimensions, and metadata.
 pub const Image = struct {
     allocator: std.mem.Allocator = undefined,
     loaded: bool = false,
@@ -26,6 +29,7 @@ pub const Image = struct {
     width: u32 = undefined,
     height: u32 = undefined,
     grayscale: bool = false,
+    /// The `meta` field is used to store the specific builder instance for the loaded image, allowing for format-specific operations if needed.
     meta: ?ImageBuilder = null,
     pub const ConvolMat = image_core.ConvolMat;
     pub const Error = image_core.Error || ImageBuilder.Error;
@@ -37,6 +41,8 @@ pub const Image = struct {
         SVG,
     };
     pub const ScaleOption = enum { BICUBIC, BILINEAR, NN };
+    /// The `ImageBuilder` union allows for a flexible way to handle different image formats while maintaining a common interface for loading and deinitializing images.
+    /// Each variant corresponds to a specific image format, and the `load` and `deinit` functions use a switch statement to call the appropriate methods based on the active variant.
     pub const ImageBuilder = union(enum) {
         jpeg: JPEGBuilder,
         png: PNGBuilder,
