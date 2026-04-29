@@ -98,6 +98,9 @@ pub const Image = struct {
         }
     }
 
+    /// The `convert_grayscale` function converts the image to grayscale by calling the corresponding function in the `image_core` module.
+    /// It checks if the image is loaded, and if so, it creates a copy of the pixel data, processes it, and then updates the original data with the new grayscale values.
+    /// If the image is not loaded, it returns an error.
     pub fn convert_grayscale(self: *Image) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.grayscale(self.allocator, self.data.items);
@@ -111,6 +114,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `fft_rep` function applies a Fast Fourier Transform (FFT) to the image data.
     pub fn fft_rep(self: *Image) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.fft_rep(self.allocator, self.data.items, self.width, self.height);
@@ -123,6 +127,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `reflection` function reflects the image across a specified axis (horizontal or vertical) by calling the corresponding function in the `image_core` module.
     pub fn reflection(self: *Image, comptime axis: @Type(.enum_literal)) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.reflection(self.allocator, self.data.items, self.width, self.height, axis);
@@ -135,6 +140,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `edge_detection` function applies an edge detection algorithm to the image data by calling the corresponding function in the `image_core` module.
     pub fn edge_detection(self: *Image) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.edge_detection(self.allocator, self.data.items, self.width, self.height);
@@ -147,6 +153,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `rotate` function rotates the image by a specified number of degrees by calling the corresponding function in the `image_core` module.
     pub fn rotate(self: *Image, degrees: f64) CoreError!void {
         if (self.loaded) {
             const data = try image_core.rotate(self.allocator, self.data.items, self.width, self.height, degrees);
@@ -163,6 +170,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `histogram_equalization` function applies histogram equalization to the image data by calling the corresponding function in the `image_core` module.
     pub fn histogram_equalization(self: *Image) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.histogram_equalization(self.allocator, self.data.items, self.width, self.height);
@@ -175,6 +183,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `shear` function applies a shear transformation to the image data by calling the corresponding function in the `image_core` module.
     pub fn shear(self: *Image, c_x: f64, c_y: f64) Error!void {
         if (self.loaded) {
             const data = try image_core.shear(self.allocator, self.data.items, self.width, self.height, c_x, c_y);
@@ -191,6 +200,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `scale` function scales the image to the specified width and height using the specified scaling algorithm (bicubic, bilinear, or nearest neighbor) by calling the corresponding function in the `image_core` module.
     pub fn scale(self: *Image, width: u32, height: u32, scale_option: ScaleOption) Error!void {
         if (self.loaded) {
             const data = switch (scale_option) {
@@ -210,6 +220,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `fft_convol` function applies a convolution operation to the image data using the Fast Fourier Transform (FFT) by calling the corresponding function in the `image_core` module.
     pub fn fft_convol(self: *Image, kernel: ConvolMat) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.fft_convol(self.allocator, self.data.items, self.width, self.height, self.grayscale, kernel);
@@ -222,6 +233,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `convol` function applies a convolution operation to the image data using a specified kernel by calling the corresponding function in the `image_core` module.
     pub fn convol(self: *Image, kernel: ConvolMat) Error!void {
         if (self.loaded) {
             const data_copy = try image_core.convol(self.allocator, self.data.items, self.width, self.height, kernel);
@@ -234,6 +246,7 @@ pub const Image = struct {
         }
     }
 
+    /// The `write_B reflect the image across a specified axis (horizontal or vertical) by calling the corresponding function in the `image_core` module.
     pub fn write_BMP(self: *Image, file_name: []const u8) Error!void {
         if (!self.loaded) {
             return Error.NotLoaded;
