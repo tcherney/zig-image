@@ -10,6 +10,7 @@ inline fn gaussian_kernel(x: i32, y: i32, sigma: f64) f64 {
     return coeff * std.math.exp(exponent);
 }
 
+/// Generates a 2D Gaussian kernel based on the provided sigma value. The kernel is normalized so that the sum of all its elements equals 1.
 fn gaussian_kernel_2d(allocator: std.mem.Allocator, sigma: f64) std.mem.Allocator.Error![]f64 {
     var kernel_size: u32 = @as(u32, @intFromFloat(@ceil(2 * sigma + 1)));
     if (kernel_size % 2 == 0) {
@@ -38,6 +39,8 @@ pub const ConvolMat = common.Mat(3, f64);
 pub const AffinePosMat = common.Mat(3, f64);
 
 pub const Error = error{FFTPow2} || std.mem.Allocator.Error || std.fs.File.Writer.Error || std.fs.File.OpenError || ConvolMat.Error;
+/// A struct representing a pixel with floating-point color values, used for bicubic interpolation calculations.
+/// The struct includes methods for basic arithmetic operations (addition, subtraction, scaling) to facilitate the interpolation process.
 const BicubicPixel = struct {
     r: f64 = 0,
     g: f64 = 0,
@@ -69,6 +72,9 @@ const BicubicPixel = struct {
     }
 };
 
+/// Performs bilinear interpolation to resize an image represented as a slice of `Pixel` structs.
+/// The function takes the original image data, its dimensions, and the desired new dimensions, and returns a new slice of `Pixel` structs containing the resized image data.
+/// The interpolation is done by calculating the weighted average of the four nearest pixels in the original image for each pixel in the new image.
 pub fn bilinear(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_width: u32, n_height: u32) Error![]Pixel {
     var data_copy = try allocator.alloc(Pixel, n_width * n_height);
     const width_scale: f64 = @as(f64, @floatFromInt(width)) / @as(f64, @floatFromInt(n_width));
@@ -148,6 +154,7 @@ fn bicubic_get_pixel(data: []Pixel, width: u32, height: u32, y: i64, x: i64) Bic
         return BicubicPixel{};
     }
 }
+/// Performs bicubic interpolation to resize an image represented as a slice of `Pixel` structs.
 pub fn bicubic(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_width: u32, n_height: u32) Error![]Pixel {
     var data_copy = try allocator.alloc(Pixel, n_width * n_height);
     const width_scale: f64 = @as(f64, @floatFromInt(width)) / @as(f64, @floatFromInt(n_width));
@@ -212,6 +219,8 @@ pub fn bicubic(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_w
 
     return data_copy;
 }
+/// Performs a Gaussian blur on an image represented as a slice of `Pixel` structs.
+/// The function takes the original image data, its dimensions, and a sigma value for the Gaussian kernel, and returns a new slice of `Pixel` structs containing the blurred image data.
 pub fn gaussian_blur(allocator: Allocator, data: []Pixel, width: u32, height: u32, sigma: f64) Error![]Pixel {
     const kernel_2d = try gaussian_kernel_2d(allocator, sigma);
     defer allocator.free(kernel_2d);
@@ -244,6 +253,7 @@ pub fn gaussian_blur(allocator: Allocator, data: []Pixel, width: u32, height: u3
     }
     return data_copy;
 }
+/// Performs nearest neighbor interpolation to resize an image represented as a slice of `Pixel` structs.
 pub fn nearest_neighbor(allocator: Allocator, data: []Pixel, width: u32, height: u32, n_width: usize, n_height: usize) Error![]Pixel {
     var data_copy = try allocator.alloc(Pixel, n_width * n_height);
     for (0..n_height) |y| {
@@ -255,6 +265,8 @@ pub fn nearest_neighbor(allocator: Allocator, data: []Pixel, width: u32, height:
     }
     return data_copy;
 }
+/// Converts an image represented as a slice of `Pixel` structs to grayscale.
+/// The function takes the original image data and an allocator, and returns a new slice of `Pixel` structs containing the grayscale image data.
 pub fn grayscale(allocator: Allocator, data: []Pixel) Error![]Pixel {
     var data_copy = try allocator.dupe(Pixel, data);
     for (0..data_copy.len) |i| {
@@ -263,7 +275,8 @@ pub fn grayscale(allocator: Allocator, data: []Pixel) Error![]Pixel {
     }
     return data_copy;
 }
-//TODO add more image processing functions https://en.wikipedia.org/wiki/Digital_image_processing
+
+/// Performs histogram equalization on an image represented as a slice of `Pixel` structs.
 pub fn histogram_equalization(allocator: Allocator, data: []Pixel, width: u32, height: u32) Error![]Pixel {
     var data_copy = try allocator.dupe(Pixel, data);
     const num_channels = 3;
@@ -318,11 +331,13 @@ fn histogram(data: []Pixel, width: u32, height: u32, channel: usize) [256]u32 {
     return ret;
 }
 
+/// Performs edge detection on an image represented as a slice of `Pixel` structs.
 pub fn edge_detection(allocator: Allocator, data: []Pixel, width: u32, height: u32) Error![]Pixel {
     const edge_detect_mat = try ConvolMat.edge_detection();
     return try convol(allocator, data, width, height, edge_detect_mat);
 }
 pub const Complex = std.math.complex.Complex(f64);
+/// Performs convolution on an image represented as a slice of `Pixel` structs using a specified convolution matrix.
 pub fn fft_convol(allocator: Allocator, data: []Pixel, width: u32, height: u32, is_grayscale: bool, kernel: ConvolMat) Error![]Pixel {
     const bits: usize = @intFromFloat(@ceil(std.math.log(f64, 2, @floatFromInt(data.len))));
     const size_pow = std.math.log(usize, 2, data.len);
@@ -404,6 +419,7 @@ pub fn fft_convol(allocator: Allocator, data: []Pixel, width: u32, height: u32, 
     allocator.free(fft_buf_copy);
     return data_copy;
 }
+/// Performs the Fast Fourier Transform (FFT) on a slice of `Complex` numbers, which is used in various image processing techniques such as convolution and frequency analysis.
 pub fn fft_bit_reverse(n: usize, bits: usize) usize {
     var reversed_n: usize = n;
     var count: usize = bits - 1;
@@ -419,6 +435,7 @@ pub fn fft_bit_reverse(n: usize, bits: usize) usize {
 fn is_pow_2(x: usize) bool {
     return (x != 0) and ((x & (x - 1)) == 0);
 }
+/// Performs the Inverse Fast Fourier Transform (IFFT) on a slice of `Complex` numbers, which is used to convert frequency domain data back to the spatial domain after processing in the frequency domain.
 pub fn ifft(buf: []Complex) Error!void {
     if (!is_pow_2(buf.len)) return Error.FFTPow2;
     for (0..buf.len) |i| {
@@ -431,6 +448,7 @@ pub fn ifft(buf: []Complex) Error!void {
         buf[i].im /= @floatFromInt(buf.len);
     }
 }
+/// Performs the Fast Fourier Transform (FFT) on a slice of `Complex` numbers, which is used in various image processing techniques such as convolution and frequency analysis.
 pub fn fft(buf: []Complex) Error!void {
     if (!is_pow_2(buf.len)) return Error.FFTPow2;
     const bits: usize = std.math.log(usize, 2, buf.len);
@@ -459,6 +477,7 @@ pub fn fft(buf: []Complex) Error!void {
     }
 }
 
+/// Performs a Fast Fourier Transform (FFT) representation of an image, which can be used for various frequency domain processing techniques such as filtering and analysis.
 pub fn fft_rep(allocator: Allocator, data: []Pixel, width: u32, height: u32) Error![]Pixel {
     const gray_data = try grayscale(allocator, data);
     const bits: usize = @intFromFloat(@ceil(std.math.log(f64, 2, @floatFromInt(data.len))));
@@ -500,6 +519,7 @@ pub fn fft_rep(allocator: Allocator, data: []Pixel, width: u32, height: u32) Err
     allocator.free(fft_buf);
     return data_copy;
 }
+/// Performs convolution on an image represented as a slice of `Pixel` structs using a specified convolution matrix.
 pub fn convol(allocator: Allocator, data: []Pixel, width: u32, height: u32, kernel: ConvolMat) Error![]Pixel {
     var data_copy = try allocator.dupe(Pixel, data);
     for (0..height) |i| {
@@ -521,7 +541,7 @@ pub fn convol(allocator: Allocator, data: []Pixel, width: u32, height: u32, kern
     }
     return data_copy;
 }
-//reflect along an axis x, y or both
+/// Performs reflection of an image represented as a slice of `Pixel` structs across a specified axis (x, y, or both).
 pub fn reflection(allocator: Allocator, data: []Pixel, width: u32, height: u32, comptime axis: @Type(.enum_literal)) Error![]Pixel {
     var data_copy = try allocator.dupe(Pixel, data);
     errdefer allocator.free(data_copy);
@@ -639,6 +659,7 @@ fn distance(a_x: f64, a_y: f64, b_x: f64, b_y: f64) f64 {
     return @sqrt((a_x - b_x) * (a_x - b_x) + (a_y - b_y) * (a_y - b_y));
 }
 
+/// Performs rotation of an image represented as a slice of `Pixel` structs by a specified angle in degrees.
 pub fn rotate(allocator: Allocator, data: []Pixel, width: u32, height: u32, degrees: f64) Error!struct { width: u32, height: u32, data: []Pixel } {
     const radians: f64 = std.math.degreesToRadians(degrees);
     var x_1 = -@as(f64, @floatFromInt(width / 2));
@@ -771,6 +792,7 @@ pub fn rotate(allocator: Allocator, data: []Pixel, width: u32, height: u32, degr
     }
     return .{ .width = n_width, .height = n_height, .data = data_copy };
 }
+/// Performs shearing of an image represented as a slice of `Pixel` structs by specified shear factors along the x and y axes.
 pub fn shear(allocator: Allocator, data: []Pixel, width: u32, height: u32, c_x: f64, c_y: f64) Error!struct { width: u32, height: u32, data: []Pixel } {
     var corners: [4]AffinePosMat.Vec = undefined;
     corners[0] = .{ 0, 0, 1 };
@@ -887,6 +909,7 @@ pub fn shear(allocator: Allocator, data: []Pixel, width: u32, height: u32, c_x: 
     }
     return .{ .width = n_width, .height = n_height, .data = data_copy };
 }
+/// Writes an image represented as a slice of `Pixel` structs to a BMP file with the specified width, height, and file name.
 pub fn write_BMP(allocator: Allocator, data: []Pixel, width: u32, height: u32, file_name: []const u8) Error!void {
     const image_file = try std.fs.cwd().createFile(file_name, .{});
     defer image_file.close();
